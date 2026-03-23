@@ -1,0 +1,223 @@
+---
+title: BLDC motor control
+description: PWM modes, commutation modes, sensorless parameters, and the mcpwm API for BLDC motor control in VESC firmware.
+keywords: [BLDC, brushless DC, PWM mode, commutation, sensorless, hall sensor, mcpwm]
+---
+
+VESC firmware supports trapezoidal (six-step) BLDC commutation as an alternative to FOC. BLDC mode has lower computational overhead and can work well for high-speed, low-torque applications where smooth sinusoidal current waveforms are not required.
+
+<Note>
+The default motor type is FOC. To use BLDC mode, set `MCCONF_DEFAULT_MOTOR_TYPE` to `MOTOR_TYPE_BLDC` or change the motor type in VESC Tool.
+</Note>
+
+## PWM modes
+
+The PWM switching scheme is selected via `mc_pwm_mode` in `datatypes.h`:
+
+```c
+typedef enum {
+    PWM_MODE_NONSYNCHRONOUS_HISW = 0,  // Not recommended
+    PWM_MODE_SYNCHRONOUS,              // Recommended
+    PWM_MODE_BIPOLAR                   // Use with caution
+} mc_pwm_mode;
+```
+
+<CardGroup cols={3}>
+  <Card title="NONSYNCHRONOUS_HISW" icon="triangle-exclamation">
+    High-side switching only. The low-side switch freewheels. Not recommended — higher losses and less reliable current sensing.
+  </Card>
+  <Card title="SYNCHRONOUS" icon="check">
+    Both high-side and low-side switches are actively controlled. This is the recommended and most tested mode. Default.
+  </Card>
+  <Card title="BIPOLAR" icon="warning">
+    Drives both phases of the active pair simultaneously. Doubles the effective switching frequency. Can cause MOSFET failures — use with caution.
+  </Card>
+</CardGroup>
+
+The default is `PWM_MODE_SYNCHRONOUS` (`MCCONF_PWM_MODE`).
+
+## Commutation modes
+
+The commutation zero-crossing detection strategy is set via `mc_comm_mode`:
+
+```c
+typedef enum {
+    COMM_MODE_INTEGRATE = 0,
+    COMM_MODE_DELAY
+} mc_comm_mode;
+```
+
+| Mode | Description |
+|---|---|
+| `COMM_MODE_INTEGRATE` | Integrates the BEMF signal and commutates when the integral reaches a threshold. More robust to noise. Default. |
+| `COMM_MODE_DELAY` | Commutates after a fixed time delay from the zero-crossing. Simpler but more sensitive to speed changes. |
+
+The default is `COMM_MODE_INTEGRATE` (`MCCONF_COMM_MODE`). You can switch modes at runtime:
+
+```c
+void mcpwm_set_comm_mode(mc_comm_mode mode);
+mc_comm_mode mcpwm_get_comm_mode(void);
+void mcpwm_switch_comm_mode(mc_comm_mode next); // schedule a mode switch
+```
+
+## Sensor modes
+
+BLDC sensor mode is set via `mc_sensor_mode`:
+
+```c
+typedef enum {
+    SENSOR_MODE_SENSORLESS = 0,
+    SENSOR_MODE_SENSORED,
+    SENSOR_MODE_HYBRID
+} mc_sensor_mode;
+```
+
+| Mode | Description |
+|---|---|
+| `SENSOR_MODE_SENSORLESS` | BEMF-based commutation. No position sensor required. Default. |
+| `SENSOR_MODE_SENSORED` | Hall sensors control commutation at all speeds. |
+| `SENSOR_MODE_HYBRID` | Hall sensors are used below `MCCONF_HALL_ERPM` (default: 2000 ERPM); sensorless above. |
+
+The hall sensor angle-to-commutation mapping is stored in a lookup table. Initialize it with:
+
+```c
+void mcpwm_init_hall_table(int8_t *table);
+```
+
+Default hall table values (BLDC mode):
+
+| Index | Default |
+|---|---|
+| `MCCONF_HALL_TAB_0` | -1 (invalid) |
+| `MCCONF_HALL_TAB_1` | 1 |
+| `MCCONF_HALL_TAB_2` | 3 |
+| `MCCONF_HALL_TAB_3` | 2 |
+| `MCCONF_HALL_TAB_4` | 5 |
+| `MCCONF_HALL_TAB_5` | 6 |
+| `MCCONF_HALL_TAB_6` | 4 |
+| `MCCONF_HALL_TAB_7` | -1 (invalid) |
+
+## Sensorless parameters
+
+Sensorless BLDC commutation depends on the BEMF flux integrator. Key parameters:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_SL_MIN_RPM` | 150 ERPM | Auto-commutate (open-loop startup) below this RPM |
+| `MCCONF_SL_CYCLE_INT_LIMIT` | 62.0 | Flux integrator limit at 0 ERPM |
+| `MCCONF_SL_MIN_ERPM_CYCLE_INT_LIMIT` | 1100 ERPM | Minimum ERPM for calculating BEMF coupling |
+| `MCCONF_SL_BEMF_COUPLING_K` | 600.0 | Input voltage to BEMF coupling constant |
+| `MCCONF_SL_PHASE_ADVANCE_AT_BR` | 0.8 | Integrator limit percentage at `MCCONF_SL_CYCLE_INT_BR` |
+| `MCCONF_SL_CYCLE_INT_BR` | 80000 ERPM | RPM boundary between start and low-speed intervals |
+| `MCCONF_SL_MAX_FB_CURR_DIR_CHANGE` | 10.0 A | Maximum brake current during which direction changes are allowed |
+
+## Switching frequency
+
+In BLDC mode the switching frequency scales with motor speed between a minimum and maximum:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_M_BLDC_F_SW_MIN` | 3000 Hz | Minimum switching frequency |
+| `MCCONF_M_BLDC_F_SW_MAX` | 35000 Hz | Maximum switching frequency |
+
+For DC motor mode, a fixed switching frequency is used:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_M_DC_F_SW` | 25000 Hz | DC mode switching frequency |
+
+## Current control (BLDC mode)
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_CC_GAIN` | 0.0046 | Current controller error gain |
+| `MCCONF_CC_MIN_CURRENT` | 0.05 A | Minimum current in current control mode |
+| `MCCONF_CC_STARTUP_BOOST_DUTY` | 0.01 | Minimum duty cycle in current control mode |
+| `MCCONF_CC_RAMP_STEP` | 0.04 | Maximum duty cycle ramp step in current control mode |
+
+## RPM measurement
+
+```c
+#define MCPWM_RPM_TIMER_FREQ  1000000.0  // Hz — timer frequency for RPM measurement
+```
+
+## The mcpwm API
+
+The `mcpwm` module implements the BLDC algorithm directly. Use `mc_interface` for normal operation; the `mcpwm` API is available for low-level access:
+
+```c
+// Initialization
+void mcpwm_init(volatile mc_configuration *configuration);
+void mcpwm_deinit(void);
+bool mcpwm_init_done(void);
+void mcpwm_set_configuration(volatile mc_configuration *configuration);
+
+// Control
+void mcpwm_set_duty(float dutyCycle);
+void mcpwm_set_duty_noramp(float dutyCycle);
+void mcpwm_set_pid_speed(float rpm);
+void mcpwm_set_pid_pos(float pos);
+void mcpwm_set_current(float current);
+void mcpwm_set_brake_current(float current);
+void mcpwm_brake_now(void);
+void mcpwm_release_motor(void);
+void mcpwm_stop_pwm(void);
+
+// State and telemetry
+mc_state mcpwm_get_state(void);
+float mcpwm_get_duty_cycle_set(void);
+float mcpwm_get_duty_cycle_now(void);
+float mcpwm_get_switching_frequency_now(void);
+float mcpwm_get_rpm(void);
+float mcpwm_get_kv(void);              // motor KV (RPM/V)
+float mcpwm_get_kv_filtered(void);
+int mcpwm_get_comm_step(void);         // current commutation step (1-6)
+
+// Current
+float mcpwm_get_tot_current(void);
+float mcpwm_get_tot_current_filtered(void);
+float mcpwm_get_tot_current_directional(void);
+float mcpwm_get_tot_current_directional_filtered(void);
+float mcpwm_get_tot_current_in(void);
+float mcpwm_get_tot_current_in_filtered(void);
+
+// Tachometer
+int mcpwm_get_tachometer_value(bool reset);
+int mcpwm_get_tachometer_abs_value(bool reset);
+int mcpwm_set_tachometer_value(int steps);
+
+// Hall sensor utilities
+void mcpwm_init_hall_table(int8_t *table);
+void mcpwm_reset_hall_detect_table(void);
+int mcpwm_get_hall_detect_result(int8_t *table);
+int mcpwm_read_hall_phase(void);
+void mcpwm_set_detect(void);
+float mcpwm_get_detect_pos(void);
+
+// Commutation mode
+void mcpwm_set_comm_mode(mc_comm_mode mode);
+mc_comm_mode mcpwm_get_comm_mode(void);
+void mcpwm_switch_comm_mode(mc_comm_mode next);
+
+// Diagnostics
+float mcpwm_read_reset_avg_cycle_integrator(void);
+mc_rpm_dep_struct mcpwm_get_rpm_dep(void);
+bool mcpwm_is_dccal_done(void);
+float mcpwm_get_last_adc_isr_duration(void);
+float mcpwm_get_last_inj_adc_isr_duration(void);
+```
+
+## Detect mode
+
+The detect mode applies test pulses to each phase to locate the hall sensor positions:
+
+```c
+void mcpwm_set_detect(void);                        // enter detect mode
+float mcpwm_get_detect_pos(void);                   // read estimated position
+void mcpwm_reset_hall_detect_table(void);           // clear results
+int mcpwm_get_hall_detect_result(int8_t *table);    // get detected hall table
+```
+
+<Tip>
+Run the hall sensor detection from VESC Tool instead of calling these functions directly. The tool automates the process and writes the result to the configuration.
+</Tip>

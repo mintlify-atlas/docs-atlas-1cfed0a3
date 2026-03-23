@@ -1,0 +1,264 @@
+---
+title: Motor control overview
+description: Motor types, control modes, states, and the mc_interface API for VESC firmware.
+keywords: [motor control, FOC, BLDC, DC, mc_interface, control mode, motor state]
+---
+
+VESC firmware supports three motor types and a unified control interface (`mc_interface`) that works across all of them. You select the motor type and control mode through the configuration, and issue commands through the same set of functions regardless of the underlying algorithm.
+
+## Motor types
+
+<CardGroup cols={3}>
+  <Card title="FOC" icon="wave-sine">
+    Field Oriented Control. Sinusoidal current control with smooth torque and high efficiency. Supports sensorless, Hall sensor, encoder, and HFI feedback.
+  </Card>
+  <Card title="BLDC" icon="bolt">
+    Trapezoidal commutation for brushless DC motors. Lower computational overhead than FOC. Supports sensorless, sensored, and hybrid modes.
+  </Card>
+  <Card title="DC" icon="plug">
+    Brushed DC motor support. Uses a fixed switching frequency defined by `MCCONF_M_DC_F_SW` (default: 25000 Hz).
+  </Card>
+</CardGroup>
+
+The motor type is set via the `mc_motor_type` enum defined in `datatypes.h`:
+
+```c
+typedef enum {
+    MOTOR_TYPE_BLDC = 0,
+    MOTOR_TYPE_DC,
+    MOTOR_TYPE_FOC
+} mc_motor_type;
+```
+
+The default motor type is `MOTOR_TYPE_FOC` (`MCCONF_DEFAULT_MOTOR_TYPE`).
+
+## Motor state
+
+At any point the motor controller is in one of four states, reported by `mc_interface_get_state()`:
+
+```c
+typedef enum {
+    MC_STATE_OFF = 0,
+    MC_STATE_DETECTING,
+    MC_STATE_RUNNING,
+    MC_STATE_FULL_BRAKE,
+} mc_state;
+```
+
+| State | Description |
+|---|---|
+| `MC_STATE_OFF` | No PWM output. Motor is coasting. |
+| `MC_STATE_DETECTING` | Motor detection or hall table measurement in progress. |
+| `MC_STATE_RUNNING` | Normal operation with active PWM output. |
+| `MC_STATE_FULL_BRAKE` | All low-side switches on. Motor is braking. |
+
+## Control modes
+
+The active control mode is reported by `mc_interface_get_control_mode()` and set implicitly by the command you issue:
+
+```c
+typedef enum {
+    CONTROL_MODE_DUTY = 0,
+    CONTROL_MODE_SPEED,
+    CONTROL_MODE_CURRENT,
+    CONTROL_MODE_CURRENT_BRAKE,
+    CONTROL_MODE_POS,
+    CONTROL_MODE_HANDBRAKE,
+    CONTROL_MODE_OPENLOOP,
+    CONTROL_MODE_OPENLOOP_PHASE,
+    CONTROL_MODE_OPENLOOP_DUTY,
+    CONTROL_MODE_OPENLOOP_DUTY_PHASE,
+    CONTROL_MODE_NONE
+} mc_control_mode;
+```
+
+| Mode | Setter | Description |
+|---|---|---|
+| `CONTROL_MODE_DUTY` | `mc_interface_set_duty()` | Direct duty cycle control. |
+| `CONTROL_MODE_SPEED` | `mc_interface_set_pid_speed()` | Speed PID closed-loop control in ERPM. |
+| `CONTROL_MODE_CURRENT` | `mc_interface_set_current()` | Motor current control in amperes. |
+| `CONTROL_MODE_CURRENT_BRAKE` | `mc_interface_set_brake_current()` | Regenerative braking with current control. |
+| `CONTROL_MODE_POS` | `mc_interface_set_pid_pos()` | Position PID control in degrees. |
+| `CONTROL_MODE_HANDBRAKE` | `mc_interface_set_handbrake()` | Hold position using a fixed braking current. |
+| `CONTROL_MODE_OPENLOOP` | `mc_interface_set_openloop_current()` | Open-loop current and speed without feedback. |
+| `CONTROL_MODE_OPENLOOP_PHASE` | `mc_interface_set_openloop_phase()` | Open-loop current at a fixed phase angle. |
+| `CONTROL_MODE_OPENLOOP_DUTY` | `mc_interface_set_openloop_duty()` | Open-loop duty cycle and speed without feedback. |
+| `CONTROL_MODE_OPENLOOP_DUTY_PHASE` | `mc_interface_set_openloop_duty_phase()` | Open-loop duty at a fixed phase angle. |
+| `CONTROL_MODE_NONE` | `mc_interface_release_motor()` | Release motor (no active control). |
+
+## Sensor modes
+
+For BLDC mode, the sensor mode is set via `mc_sensor_mode`:
+
+```c
+typedef enum {
+    SENSOR_MODE_SENSORLESS = 0,
+    SENSOR_MODE_SENSORED,
+    SENSOR_MODE_HYBRID
+} mc_sensor_mode;
+```
+
+- **Sensorless** (`SENSOR_MODE_SENSORLESS`) — BEMF zero-crossing detection. No position sensor required. Default mode.
+- **Sensored** (`SENSOR_MODE_SENSORED`) — Hall sensors provide commutation timing at all speeds.
+- **Hybrid** (`SENSOR_MODE_HYBRID`) — Hall sensors are used at low speeds; sensorless commutation takes over above `MCCONF_HALL_ERPM` (default: 2000 ERPM).
+
+For FOC mode, sensor feedback is configured separately via `mc_foc_sensor_mode`. See [FOC](/motor-control/foc) for details.
+
+## The mc_interface API
+
+All motor control commands go through `mc_interface`. This layer handles safety limits, fault detection, and dispatches to the underlying BLDC or FOC implementation.
+
+### Configuration
+
+```c
+// Get the current motor configuration (read-only pointer)
+const volatile mc_configuration *mc_interface_get_configuration(void);
+
+// Apply a new motor configuration
+void mc_interface_set_configuration(mc_configuration *configuration);
+
+// Calculate configuration CRC for validation
+unsigned mc_interface_calc_crc(mc_configuration *conf, bool is_motor_2);
+
+// Check if DC calibration has completed
+bool mc_interface_dccal_done(void);
+```
+
+### Motor commands
+
+```c
+// Duty cycle control (range: -1.0 to 1.0)
+void mc_interface_set_duty(float dutyCycle);
+void mc_interface_set_duty_noramp(float dutyCycle);  // no ramping
+
+// Speed PID control (electrical RPM)
+void mc_interface_set_pid_speed(float rpm);
+
+// Position PID control (degrees)
+void mc_interface_set_pid_pos(float pos);
+
+// Current control (amperes)
+void mc_interface_set_current(float current);
+void mc_interface_set_current_rel(float val);         // relative: -1.0 to 1.0
+
+// Brake current control
+void mc_interface_set_brake_current(float current);
+void mc_interface_set_brake_current_rel(float val);
+
+// Handbrake (hold position)
+void mc_interface_set_handbrake(float current);
+void mc_interface_set_handbrake_rel(float val);
+
+// Open-loop control (FOC only)
+void mc_interface_set_openloop_current(float current, float rpm);
+void mc_interface_set_openloop_phase(float current, float phase);
+void mc_interface_set_openloop_duty(float dutyCycle, float rpm);
+void mc_interface_set_openloop_duty_phase(float dutyCycle, float phase);
+
+// Stop and release
+void mc_interface_brake_now(void);
+void mc_interface_release_motor(void);
+```
+
+### Telemetry
+
+```c
+// Speed and position
+float mc_interface_get_rpm(void);
+float mc_interface_get_speed(void);          // m/s (uses wheel diameter from setup)
+float mc_interface_get_distance(void);       // meters
+float mc_interface_get_distance_abs(void);   // absolute meters
+float mc_interface_get_duty_cycle_now(void); // actual duty cycle
+float mc_interface_get_duty_cycle_set(void); // commanded duty cycle
+float mc_interface_get_pid_pos_now(void);    // current rotor position (degrees)
+float mc_interface_get_pid_pos_set(void);    // position setpoint (degrees)
+
+// Current
+float mc_interface_get_tot_current(void);
+float mc_interface_get_tot_current_filtered(void);
+float mc_interface_get_tot_current_directional(void);
+float mc_interface_get_tot_current_directional_filtered(void);
+float mc_interface_get_tot_current_in(void);
+float mc_interface_get_tot_current_in_filtered(void);
+
+// FOC dq-frame currents and voltages
+float mc_interface_read_reset_avg_id(void);  // d-axis current
+float mc_interface_read_reset_avg_iq(void);  // q-axis current
+float mc_interface_read_reset_avg_vd(void);  // d-axis voltage
+float mc_interface_read_reset_avg_vq(void);  // q-axis voltage
+
+// Voltage and energy
+float mc_interface_get_input_voltage_filtered(void);
+float mc_interface_get_amp_hours(bool reset);
+float mc_interface_get_amp_hours_charged(bool reset);
+float mc_interface_get_watt_hours(bool reset);
+float mc_interface_get_watt_hours_charged(bool reset);
+
+// Temperature
+float mc_interface_temp_fet_filtered(void);
+float mc_interface_temp_motor_filtered(void);
+
+// Odometer
+uint64_t mc_interface_get_odometer(void);
+void mc_interface_set_odometer(uint64_t new_odometer_meters);
+```
+
+### Fault handling
+
+```c
+// Get the current fault code
+mc_fault_code mc_interface_get_fault(void);
+
+// Convert a fault code to a human-readable string
+const char *mc_interface_fault_to_string(mc_fault_code fault);
+```
+
+<Note>
+When a fault occurs, the controller ignores new commands for `MCCONF_M_FAULT_STOP_TIME` milliseconds (default: 500 ms) before resuming normal operation.
+</Note>
+
+### Statistics
+
+```c
+float mc_interface_stat_speed_avg(void);
+float mc_interface_stat_speed_max(void);
+float mc_interface_stat_power_avg(void);
+float mc_interface_stat_power_max(void);
+float mc_interface_stat_current_avg(void);
+float mc_interface_stat_current_max(void);
+float mc_interface_stat_temp_mosfet_avg(void);
+float mc_interface_stat_temp_mosfet_max(void);
+float mc_interface_stat_temp_motor_avg(void);
+float mc_interface_stat_temp_motor_max(void);
+float mc_interface_stat_count_time(void);
+void mc_interface_stat_reset(void);
+```
+
+## Multi-motor support
+
+VESC hardware with dual motor support uses `mc_interface_select_motor_thread()` to select which motor the current thread controls:
+
+```c
+// Select motor 1 or 2 for the calling thread
+void mc_interface_select_motor_thread(int motor);
+
+// Get the motor currently selected for this thread
+int mc_interface_get_motor_thread(void);
+
+// Get the motor currently active (1 or 2)
+int mc_interface_motor_now(void);
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="FOC" icon="wave-sine" href="/motor-control/foc">
+    Sensor modes, HFI, field weakening, and FOC-specific configuration.
+  </Card>
+  <Card title="BLDC" icon="bolt" href="/motor-control/bldc">
+    PWM modes, commutation modes, and BLDC-specific parameters.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/motor-control/configuration">
+    Full reference of current, voltage, temperature, and speed limits.
+  </Card>
+</CardGroup>

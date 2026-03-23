@@ -1,0 +1,209 @@
+---
+title: 'Changelog'
+description: 'Release history for VESC firmware from version 6.02 through 7.00.'
+keywords: ['changelog', 'release notes', 'version history', 'firmware updates']
+---
+
+This page covers recent firmware releases. The current firmware version is **7.00** (development), as defined in `conf_general.h`:
+
+```c
+#define FW_VERSION_MAJOR    7
+#define FW_VERSION_MINOR    00
+#define FW_TEST_VERSION_NUMBER  1
+```
+
+The full changelog is available in [`CHANGELOG.md`](https://github.com/vedderb/bldc/blob/master/CHANGELOG.md) in the repository.
+
+<AccordionGroup>
+
+  <Accordion title="7.00 — TBD (development)">
+    Current development branch. No release date set.
+
+    **Motor control**
+    - Configurable HFI reset ERPM.
+    - Removed D-axis gain scaling parameters.
+    - Sin/Cos encoder filter delay compensation.
+    - Moved field weakening to fast loop for better stability.
+    - New AB encoder sensor mode for encoders without an index pulse.
+  </Accordion>
+
+  <Accordion title="6.06.6 — 2025-11-01">
+    Patch release on top of 6.06.
+
+    - Persistent CAN ID and CAN baud rate across firmware updates.
+    - Better current controller circle limiting.
+  </Accordion>
+
+  <Accordion title="6.06 — 2025-08-18">
+    **LispBM scripting**
+    - New core extensions, optimization, and much more unit testing.
+    - Many bug fixes in the reader.
+    - Moved `const` memory into its own flash sector.
+    - Added `const-heap-erase` extension.
+    - Added mutex support.
+    - Added `can-ping` extension.
+    - LBM Image support: super-fast boot, easier `const` blocks, automatic rebuild when needed.
+    - Added `conf-detect-lambda-enc`.
+    - Added many configuration parameters.
+
+    **Motor control**
+    - New offset calibration modes and automatic offset calibration.
+    - Added HFI ambiguity resolution modes using id injection.
+    - Overmodulation support.
+    - Added PWM and PWM+ABI encoder modes.
+    - Detect encoder parameters during flux linkage detection.
+
+    **Communication**
+    - Support for coordinated CAN baud rate update.
+  </Accordion>
+
+  <Accordion title="6.05 — 2024-08-19">
+    **LispBM scripting**
+    - `var` support in `progn`; curly brackets as `progn` shorthand.
+    - Added `set`, `setq`, `defunret`.
+    - Support for detaching individual ADCs.
+    - Added `set-encoder`, `conf-restore-mc`, `conf-restore-app`, `conf-dc-cal`.
+    - Code and data can be moved to flash.
+    - Incremental code upload.
+    - Removed typed arrays (byte arrays only).
+    - Added position extensions, `phase-hall`, `loopwhile-thd`, `can-recv-sid`, `can-recv-eid`.
+    - Added `foc-play-tone`, `foc-play-stop`, `foc-play-samples`.
+    - Added `shutdown-hold`, `crc32`, `rand`, `app-adc-range-ok`.
+    - Built-in fast sort function.
+    - Thread profiler support.
+    - Flat value support.
+    - `recv-to` with timeout argument.
+    - Remote message extensions.
+    - Massive performance boost for string functions and 64-bit operations.
+    - Better error descriptions.
+
+    **Hall sensors**
+    - Smooth transition to sensorless mode.
+    - Bug fix in interpolation.
+    - Less noisy speed estimator for interpolation.
+    - Adjusted rate limit.
+
+    **Motor control**
+    - Added soft regen cutoff.
+    - MTPA and field weakening input current limiting attempt.
+    - Removed built-in balance app (use the balance package instead).
+    - Added option to select PID controller speed source.
+    - Persistent odometer without dedicated shutdown switch.
+    - Dual motor flux linkage measurement current spike bug fix.
+    - Runaway fix after faults during open-loop measurements.
+    - Additional current sampling modes.
+    - FOC interpolation mode.
+    - Passive flux linkage measurement.
+    - Braking glitch fixes.
+    - Configurable HFI error truncation for noise rejection.
+    - Option to short low-side phases on zero duty.
+    - Added MXV observer type.
+    - Removed GPDrive.
+  </Accordion>
+
+  <Accordion title="6.02 — 2023-03-12">
+    **LispBM scripting**
+    - Bug fixes.
+    - Added `floor`, `ceil`, `round`.
+    - Added resistance, inductance, and flux linkage estimator functions.
+    - Added `adc_ctrl_type` setting.
+    - Added `app_is_disabled`.
+    - Added ICU driver.
+    - Inductance measurement support.
+    - Rewrote the event system.
+    - Added `canget-vin`, `hw-type` sysinfo, `crc16` extension.
+
+    **Firmware**
+    - IMU filtering changes and new defaults.
+    - Increased hall sensor switch hysteresis.
+    - Added and updated hardware configs.
+    - Fixed systime overflow.
+    - Various CAN command fixes.
+  </Accordion>
+
+  <Accordion title="6.00 — 2022-12-08">
+    Major release introducing LispBM scripting and significant motor control improvements.
+
+    **Core**
+    - Added stack checks.
+    - Release motor fix when `cc_min_current` is 0.
+    - Added sandboxed Lisp scripting via [LispBM](https://github.com/svenssonjoel/lispBM).
+    - Added support for dynamic loading of C libraries.
+    - Flash writes now work on lower MCU voltages.
+    - Added `fwinfo` terminal command.
+    - CAN status messages now configured via bitfields; two configurable send rates.
+
+    **Temperature sensors**
+    - Added NTC and PTC support with custom resistance and base temperature.
+    - Added PT1000 temperature sensor support.
+
+    **Motor control**
+    - New silent HFI mode with much better performance at high load.
+    - Second silent HFI mode, less sensitive to inductance accuracy.
+    - Added openloop current boost and max parameters.
+    - Added more observers: mxlemming, Ortega with flux linkage tracking, mxlemming with flux linkage tracking.
+
+    **Application**
+    - Added ADC min/max voltage limits for throttle fault detection.
+    - APP ADC button bitfield and CC disable support.
+    - Added BissC encoder support.
+    - Added AS5x47 encoder support.
+    - Added TLE5012 encoder support.
+    - Disabled BMS limit options.
+    - Better detection fault handling and reporting.
+    - Encoder driver split and rewrite for easier multi-encoder support.
+
+    **BMS**
+    - Disable BMS limit configuration options added.
+
+    **IMU**
+    - No specific changes noted; general stability improvements.
+  </Accordion>
+
+  <Accordion title="5.03 — 2022-01-16">
+    **Motor control**
+    - Fixed inductance measurement bug.
+    - Speed tracker windup protection.
+    - Phase filter support.
+    - Phase voltage offset calibration.
+    - Better current offset calibration.
+    - Synchronize observer state when running in open loop.
+    - Force observer state magnitude above 50% of flux linkage (prevents motor getting stuck).
+    - Observer global convergence update (helps tracking through zero speed).
+    - Added HFI start sensor mode.
+    - Field weakening support (experimental).
+    - Used filtered current for axis decoupling.
+    - Better current controller windup protection.
+    - Added MTPA mode based on measured current.
+    - Faster overvoltage protection.
+    - Compensate inductance for motor saliency in observer.
+
+    **Applications and peripherals**
+    - Added power switch commands.
+    - Added kill switch support.
+    - Added servo_out_enable app config option.
+    - Added process derivative term to position controller.
+    - Added position PID angle offset.
+    - Configurable PID controller rate.
+    - Added several AUX port modes.
+    - Added configurable safe start modes.
+    - Added constant torque PAS mode.
+    - Added fusion IMU filter.
+    - Major UAVCAN update.
+
+    **System**
+    - Added custom UI support (QML).
+    - Odometer is now persistent after firmware updates.
+    - Added hardware runtime counter.
+    - Added statistics counters.
+    - Correct scaling for resistance and inductance.
+    - Low-pass filter on input voltage.
+    - Dual hardware CAN scan fix.
+    - Disable motor for 5 seconds after flash operations.
+    - Added configurable observer offset.
+    - Added `p_pid_gain_dec_angle` parameter.
+    - TEMP_SENSOR_KTY84_130 support.
+    - Added raw sampled data mode.
+  </Accordion>
+
+</AccordionGroup>

@@ -1,0 +1,97 @@
+---
+title: 'LispBM scripting'
+description: 'Run sandboxed Lisp programs directly on the VESC to implement custom motor control logic, automation, and more.'
+keywords: ['lispbm', 'lisp', 'scripting', 'vesc', 'embedded', 'repl']
+---
+
+LispBM is an integration of the [lispBM](https://github.com/svenssonjoel/lispBM) language by Joel Svensson into the VESC firmware. It lets the VESC run Lisp programs in a sandboxed environment alongside the main motor control stack — no external hardware or host computer required once a script is uploaded.
+
+## What LispBM provides
+
+<CardGroup cols={2}>
+  <Card title="Sandboxed runtime" icon="shield">
+    Lisp code runs in isolation. A stuck script or heap exhaustion cannot freeze or crash the rest of the VESC firmware.
+  </Card>
+  <Card title="Stored in flash" icon="database">
+    Scripts are written to flash memory and survive power cycles. When a Lisp application is uploaded to the VESC it starts automatically on every boot.
+  </Card>
+  <Card title="Live REPL" icon="terminal">
+    VESC Tool includes a Lisp console where you can execute expressions and inspect bindings in the running program without restarting it.
+  </Card>
+  <Card title="Live monitoring" icon="chart-line">
+    CPU usage, heap consumption, and custom variable plots are available in real time from VESC Tool while the script is running.
+  </Card>
+</CardGroup>
+
+## How scripts are stored and started
+
+When you write a Lisp application to the VESC using VESC Tool, the compiled bytecode is saved to the device's flash memory. On every subsequent boot the firmware loads and starts the script automatically — no host connection is needed for normal operation.
+
+The script keeps running until it explicitly exits, encounters an unrecoverable error, or the VESC is power-cycled. Because the environment is sandboxed, a runaway script (infinite loop, heap exhaustion) is isolated from the motor control task.
+
+<Note>
+  Code that is actively controlling a motor must call `(timeout-reset)` at least once per second or the motor will stop. This is a safety feature — not a bug.
+</Note>
+
+## Development workflow
+
+<Steps>
+  <Step title="Open the Lisp editor in VESC Tool">
+    Navigate to **Scripting** in VESC Tool. The built-in editor has syntax highlighting and a collection of example scripts accessible from the menu.
+  </Step>
+  <Step title="Write or load a script">
+    Write your Lisp program in the editor or load one of the bundled examples as a starting point. VESC Tool includes examples covering motor control, CAN communication, sensor reading, and more.
+  </Step>
+  <Step title="Upload and run">
+    Click **Upload** to write the script to the VESC. The script starts immediately. Use the **Console** tab to view `print` output and interact with the running program via the REPL.
+  </Step>
+  <Step title="Monitor and iterate">
+    Use the **Live Data** and **Plot** panels to monitor variables in real time. Edit the script, re-upload, and the VESC restarts the Lisp runtime with the new code.
+  </Step>
+</Steps>
+
+## REPL access
+
+The REPL in VESC Tool gives full access to all functions and variable bindings in the currently running program. You can call extension functions, inspect state, and test expressions without modifying or restarting the script.
+
+```clojure
+; Typed directly in the VESC Tool console:
+(get-rpm)          ; returns current motor RPM
+(get-vin)          ; returns input voltage
+(print "hello")    ; prints to the console
+```
+
+<Tip>
+  Use `(set-print-prefix "dev-1| ")` when multiple VESC devices are connected over CAN and all printing to the same console. This makes it easy to tell which output comes from which device.
+</Tip>
+
+## CPU and memory monitoring
+
+VESC Tool displays real-time CPU load and heap usage for the Lisp runtime. This helps you identify scripts that are too compute-intensive for the available resources and tune accordingly.
+
+For scripts that must start quickly, LBM Image support allows pre-compiled snapshots of the heap to be stored in flash and restored at boot, avoiding the overhead of re-evaluating the script from source on every power cycle.
+
+## Platform support
+
+| Feature | ESC (STM32) | VESC Express (ESP32) |
+|---|---|---|
+| Core LispBM runtime | Yes | Yes |
+| Motor control extensions | Yes | No |
+| CAN bus extensions | Yes | Yes |
+| IMU extensions | Yes | Yes |
+| Display / WiFi / BLE | No | Yes |
+| UART / I2C / GPIO | Yes | Yes |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Language reference" icon="book" href="/lispbm/language-reference">
+    Core LispBM syntax, data types, control flow, and functions.
+  </Card>
+  <Card title="VESC extensions" icon="plug" href="/lispbm/vesc-extensions">
+    Motor control, CAN bus, IMU, GPIO, and all VESC-specific functions.
+  </Card>
+  <Card title="Examples" icon="code" href="/lispbm/examples">
+    Practical scripts to read sensors, control motor speed, and communicate over CAN.
+  </Card>
+</CardGroup>

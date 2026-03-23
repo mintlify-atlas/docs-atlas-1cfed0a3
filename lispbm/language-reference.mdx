@@ -1,0 +1,237 @@
+---
+title: 'Language reference'
+description: 'Core LispBM syntax, data types, control flow, and function definitions for VESC scripting.'
+keywords: ['lispbm', 'lisp', 'syntax', 'data types', 'control flow', 'closures', 'lbm']
+---
+
+LispBM is a small Lisp dialect designed for microcontrollers. This page covers the language features most relevant to VESC scripting. For the complete upstream language specification, see the [LispBM language reference](https://github.com/svenssonjoel/lispBM/blob/master/doc/lbmref.md).
+
+## Basic syntax
+
+LispBM uses the standard Lisp S-expression syntax. Everything is either an atom or a list. A list whose first element is a function or special form is a call expression.
+
+```clojure
+; This is a comment
+(+ 1 2)          ; => 3
+(* 3.0 1.5)      ; => 4.5
+(print "hello")  ; prints to console
+```
+
+Expressions are evaluated — the result of an expression is its value. The REPL prints the result of each top-level expression.
+
+## Data types
+
+<AccordionGroup>
+  <Accordion title="Numbers">
+    LispBM supports integer and floating-point literals. Integers are 28-bit signed values by default. Use the `f32` suffix for single-precision floats and `f64` for doubles.
+
+    ```clojure
+    42          ; integer
+    -7          ; negative integer
+    3.14        ; float (f32 by default)
+    3.14f64     ; double-precision float
+    0xFF        ; hexadecimal integer
+    ```
+  </Accordion>
+  <Accordion title="Symbols">
+    Symbols are identifiers. When quoted with `'`, a symbol is a value in itself rather than a variable reference. VESC extensions use quoted symbols as named parameters.
+
+    ```clojure
+    'my-symbol          ; a symbol value
+    'bms-v-tot          ; used as an argument to get-bms-val
+    'l-current-max      ; used as an argument to conf-get
+    ```
+  </Accordion>
+  <Accordion title="Booleans">
+    `t` is true and `nil` is false (also the empty list). Many predicates return `nil` for false and a non-nil value for true.
+
+    ```clojure
+    t        ; true
+    nil      ; false / empty list
+    (= 1 1)  ; => t
+    (= 1 2)  ; => nil
+    ```
+  </Accordion>
+  <Accordion title="Lists">
+    Lists are the fundamental compound type. `cons` builds a pair, `car` extracts the head, `cdr` extracts the tail, and `list` creates a list from arguments.
+
+    ```clojure
+    (list 1 2 3)          ; => (1 2 3)
+    (car (list 1 2 3))    ; => 1
+    (cdr (list 1 2 3))    ; => (2 3)
+    (cons 0 (list 1 2))   ; => (0 1 2)
+    (ix (list 10 20 30) 1) ; => 20  (index access)
+    ```
+  </Accordion>
+  <Accordion title="Strings">
+    String literals are double-quoted. The string extensions (loaded automatically) provide formatting and manipulation functions.
+
+    ```clojure
+    "hello"
+    (str-from-n 3.14 "Value: %.2f")  ; => "Value: 3.14"
+    (str-merge "a" "b" "c")          ; => "abc"
+    ```
+  </Accordion>
+  <Accordion title="Byte arrays">
+    Byte arrays are mutable fixed-size buffers. They are used for CAN payloads, UART data, and other binary operations.
+
+    ```clojure
+    (make-array 8)              ; create an 8-byte array
+    (bufset-u8 arr 0 0xFF)      ; set byte at index 0
+    (bufget-u8 arr 0)           ; get byte at index 0
+    (bufset-f32 arr 0 3.14 1)   ; set float32 at index 0, big-endian
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Variables and binding
+
+Use `define` for top-level bindings and `let` for local bindings.
+
+```clojure
+(define my-speed 0.0)         ; top-level variable
+
+(let ((x 10)
+      (y 20))
+  (+ x y))                    ; => 30, x and y not visible outside
+```
+
+Use `setvar` to mutate an existing binding:
+
+```clojure
+(define counter 0)
+(setvar 'counter (+ counter 1))
+```
+
+## Control flow
+
+### if
+
+```clojure
+(if condition
+  then-expression
+  else-expression)
+
+(if (> (get-rpm) 1000)
+  (print "fast")
+  (print "slow"))
+```
+
+### cond
+
+`cond` tests multiple conditions in order and evaluates the first branch whose condition is true:
+
+```clojure
+(cond
+  ((< rpm 100)  (print "stopped"))
+  ((< rpm 3000) (print "slow"))
+  ((< rpm 8000) (print "medium"))
+  (t            (print "fast")))
+```
+
+### and / or
+
+```clojure
+(and (> x 0) (< x 100))   ; true if both conditions hold
+(or  (< x 0) (> x 100))   ; true if either condition holds
+```
+
+### loop (loopwhile / loopfor / looprange)
+
+The most common loop form for VESC scripts is `loopwhile`, which runs until its condition becomes false:
+
+```clojure
+(loopwhile t
+  (progn
+    ; body executed repeatedly
+    (timeout-reset)
+    (sleep 0.01)))
+```
+
+`loopfor` and `looprange` are available for counted iterations:
+
+```clojure
+(looprange i 0 10
+  (print i))              ; prints 0 through 9
+```
+
+`progn` sequences multiple expressions and returns the value of the last one:
+
+```clojure
+(progn
+  (expression-1)
+  (expression-2)
+  (expression-3))         ; returns the value of expression-3
+```
+
+## Functions and closures
+
+Define functions with `defun` or `lambda`:
+
+```clojure
+(defun square (x)
+  (* x x))
+
+(square 5)  ; => 25
+
+; Anonymous function (lambda)
+(define add (lambda (a b) (+ a b)))
+(add 3 4)   ; => 7
+```
+
+LispBM supports closures — lambdas capture their defining environment:
+
+```clojure
+(defun make-adder (n)
+  (lambda (x) (+ x n)))
+
+(define add5 (make-adder 5))
+(add5 10)   ; => 15
+```
+
+## Recursion
+
+LispBM supports proper tail-call optimization for tail-recursive functions:
+
+```clojure
+(defun count-down (n)
+  (if (> n 0)
+    (progn
+      (print n)
+      (count-down (- n 1)))))
+
+(count-down 5)
+```
+
+<Warning>
+  Deep non-tail recursion will exhaust the LBM stack. Prefer `loopwhile` for long-running iteration in VESC scripts.
+</Warning>
+
+## Concurrency
+
+LispBM supports cooperative multitasking via `spawn`:
+
+```clojure
+(spawn (lambda ()
+  (loopwhile t
+    (progn
+      (print (get-rpm))
+      (sleep 0.5)))))
+```
+
+Spawned threads share the same heap. Use `mutex` from the mutex extensions to protect shared state.
+
+## LBM Image support
+
+For applications where fast startup is critical, the firmware supports LBM Images — pre-compiled snapshots of the heap stored in flash. On boot the image is restored rather than the script being re-evaluated from source, which eliminates startup latency.
+
+<Note>
+  LBM Image support requires firmware 6.00 or newer on ESC hardware. The image is generated automatically when the script is uploaded via VESC Tool.
+</Note>
+
+## Upstream documentation
+
+This page covers the subset of LispBM most commonly used in VESC scripts. The full language reference — including all built-in operators, the type system, and the standard libraries — is available at:
+
+- [LispBM language reference](https://github.com/svenssonjoel/lispBM/blob/master/doc/lbmref.md) — complete language specification
+- [LispBM dynamic libraries](https://github.com/svenssonjoel/lispBM/blob/master/doc/dynref.md) — math, string, array, and other libraries

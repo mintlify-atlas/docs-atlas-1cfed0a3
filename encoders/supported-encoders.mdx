@@ -1,0 +1,291 @@
+---
+title: "Supported encoders"
+description: "Reference for all encoder types supported by the VESC firmware, including interface details and diagnostic fields."
+keywords: ["ABI", "AS504x", "AS5x47U", "BiSS-C", "MA782", "MT6816", "SinCos", "TLE5012", "TS5700N8501", "PWM encoder"]
+---
+
+The VESC firmware supports ten encoder driver families, each implemented as a standalone module under `encoder/`. All drivers expose at minimum an `init`, `deinit`, and angle-read function. The encoder core in `encoder.c` selects and wraps the active driver based on the motor configuration.
+
+The active driver is identified by the `encoder_type_t` enum defined in `encoder_datatype.h`:
+
+```c
+typedef enum {
+    ENCODER_TYPE_NONE = 0,
+    ENCODER_TYPE_AS504x,
+    ENCODER_TYPE_MT6816,
+    ENCODER_TYPE_TLE5012,
+    ENCODER_TYPE_AD2S1205_SPI,
+    ENCODER_TYPE_SINCOS,
+    ENCODER_TYPE_TS5700N8501,
+    ENCODER_TYPE_ABI,
+    ENCODER_TYPE_AS5x47U,
+    ENCODER_TYPE_BISSC,
+    ENCODER_TYPE_CUSTOM,
+    ENCODER_TYPE_PWM,
+    ENCODER_TYPE_PWM_ABI,
+    ENCODER_TYPE_MA782,
+} encoder_type_t;
+```
+
+---
+
+## ABI — `enc_abi`
+
+ABI (A/B/Index) is the standard incremental quadrature encoder interface. Channels A and B produce 90°-offset square waves; counting transitions gives position. The optional Index (I) pulse fires once per revolution and is used to establish an absolute reference.
+
+| Property | Value |
+|---|---|
+| Interface | GPIO (hardware timer quadrature decode) |
+| Resolution | Configurable (counts per revolution) |
+| Absolute | No — relative only until index pulse |
+| `encoder_type_t` | `ENCODER_TYPE_ABI`, `ENCODER_TYPE_PWM_ABI` |
+
+**Key state fields** (`ABI_state`):
+
+```c
+typedef struct {
+    volatile bool     index_found;
+    volatile uint32_t cnt_at_ind_last;
+    volatile int      bad_pulses;
+    volatile uint32_t index_pulse_cnt;
+} ABI_state;
+```
+
+<Tip>
+  Call `encoder_index_found()` to check whether the firmware has seen the index pulse after power-on. FOC accuracy improves once the index is found.
+</Tip>
+
+---
+
+## AS504x — `enc_as504x`
+
+The AS504x family (AS5040, AS5045, AS5047, AS5048) from ams-OSRAM are contactless magnetic rotary position sensors that communicate over SPI using a bit-bang software SPI (`spi_bb`).
+
+| Property | Value |
+|---|---|
+| Interface | SPI (software bit-bang) |
+| Resolution | Up to 14-bit (AS5048) |
+| Absolute | Yes — single-turn |
+| `encoder_type_t` | `ENCODER_TYPE_AS504x` |
+
+**Diagnostic fields** (`AS504x_diag`):
+
+```c
+typedef struct {
+    uint8_t  is_connected;
+    uint8_t  AGC_value;       // Automatic gain control
+    uint16_t magnitude;       // Field magnitude
+    uint8_t  is_OCF;          // Offset compensation finished
+    uint8_t  is_COF;          // Cordic overflow — magnet too close/far
+    uint8_t  is_Comp_low;     // AGC at maximum — magnet too far
+    uint8_t  is_Comp_high;    // AGC at minimum — magnet too close
+    ...
+} AS504x_diag;
+```
+
+Monitor `is_COF`, `is_Comp_low`, and `is_Comp_high` to verify correct airgap between the sensor and the diametrically magnetised target magnet.
+
+---
+
+## AS5x47U — `enc_as5x47u`
+
+The AS5x47U family (e.g., AS5047U, AS5147U) are high-speed magnetic rotary encoders from ams-OSRAM with hardware SPI and an extended diagnostic register set.
+
+| Property | Value |
+|---|---|
+| Interface | SPI (hardware) |
+| Resolution | Up to 14-bit |
+| Absolute | Yes — single-turn |
+| `encoder_type_t` | `ENCODER_TYPE_AS5x47U` |
+
+**Diagnostic fields** (`AS5x47U_diag`) include watchdog test status (`is_wdtst`), CRC error flag (`is_crc_error`), broken Hall flag (`is_broken_hall`), and field half-strength flag (`is_mag_half`), in addition to the same AGC and magnitude fields as the AS504x.
+
+---
+
+## BiSS-C — `enc_bissc`
+
+BiSS-C (Bidirectional Serial Synchronous Communication) is an open-standard serial interface for absolute encoders and other sensors. The firmware uses hardware SPI and a 6-bit CRC to validate each frame.
+
+| Property | Value |
+|---|---|
+| Interface | SPI (hardware) |
+| Resolution | Configurable (`enc_res` field) |
+| Absolute | Yes — single or multi-turn depending on sensor |
+| `encoder_type_t` | `ENCODER_TYPE_BISSC` |
+
+**Key state fields** (`BISSC_state`):
+
+```c
+typedef struct {
+    float    spi_data_error_rate;
+    uint32_t spi_data_error_cnt;
+    float    spi_comm_error_rate;
+    uint32_t spi_comm_error_cnt;
+    float    last_enc_angle;
+    uint32_t spi_val;
+    uint32_t last_update_time;
+    uint8_t  decod_buf[8];
+} BISSC_state;
+```
+
+---
+
+## MA782 — `enc_ma782`
+
+The MagAlpha MA782 from Monolithic Power Systems is a high-speed contactless angle sensor with an SPI interface and an internal angle tracking register.
+
+| Property | Value |
+|---|---|
+| Interface | SPI (hardware) |
+| Resolution | 8-bit to 16-bit depending on configuration |
+| Absolute | Yes — single-turn |
+| `encoder_type_t` | `ENCODER_TYPE_MA782` |
+
+The driver uses an asynchronous state machine (`ma782_substate_t`) with `MA782_IDLE` and `MA782_READ_ANGLE_REQ` states to pipeline SPI transfers with the FOC interrupt.
+
+**Error flags** (`ma782_error_t`):
+
+```c
+typedef enum {
+    MA782_CALLBACK_IN_IDLE   = 1 << 0,
+    MA782_SPI_ERROR          = 1 << 1,
+    MA782_READ_NOT_IDLE      = 1 << 2,
+    MA782_SPI_NOT_READY      = 1 << 3,
+    MA782_ANGLE_NOT_IDLE     = 1 << 4,
+    MA782_UNKNOWN_STATE      = 1 << 5,
+    MA782_WRITE_NOT_IDLE     = 1 << 6,
+    MA782_WRITE_REG_FAIL     = 1 << 7,
+    MA782_WRITE_READOUT_FAIL = 1 << 8,
+} ma782_error_t;
+```
+
+---
+
+## MT6816 — `enc_mt6816`
+
+The MT6816 from MagnTek is a 14-bit contactless magnetic angle sensor with hardware SPI and a no-magnet detection flag.
+
+| Property | Value |
+|---|---|
+| Interface | SPI (hardware) |
+| Resolution | 14-bit |
+| Absolute | Yes — single-turn |
+| `encoder_type_t` | `ENCODER_TYPE_MT6816` |
+
+**Key state fields** (`MT6816_state`):
+
+```c
+typedef struct {
+    float    spi_error_rate;
+    float    encoder_no_magnet_error_rate;
+    uint32_t encoder_no_magnet_error_cnt;  // Magnet absent or too weak
+    float    last_enc_angle;
+    uint32_t spi_error_cnt;
+    uint32_t spi_val;
+    uint32_t last_update_time;
+} MT6816_state;
+```
+
+<Warning>
+  Non-zero `encoder_no_magnet_error_cnt` indicates the target magnet is missing or the airgap is too large. Do not run FOC in this condition.
+</Warning>
+
+---
+
+## PWM — `enc_pwm`
+
+Some encoder and position-sensor modules output angle as a PWM duty cycle (e.g., AS5600 in PWM mode). The `enc_pwm` driver captures the duty cycle using a timer input-capture peripheral and converts it to degrees.
+
+| Property | Value |
+|---|---|
+| Interface | PWM input (hardware timer) |
+| Resolution | Duty-cycle resolution of the source sensor |
+| Absolute | Yes — single-turn (limited by PWM resolution) |
+| `encoder_type_t` | `ENCODER_TYPE_PWM`, `ENCODER_TYPE_PWM_ABI` |
+
+The `ENCODER_TYPE_PWM_ABI` variant combines PWM absolute position with ABI quadrature for higher update rates.
+
+---
+
+## SinCos — `enc_sincos`
+
+Analogue sine/cosine encoders output two 90°-phase-shifted analogue signals. The firmware reads these on ADC channels, applies gain and offset calibration, and computes the angle with `atan2`.
+
+| Property | Value |
+|---|---|
+| Interface | Analogue (ADC) |
+| Resolution | Determined by ADC resolution and signal quality |
+| Absolute | Within one period — multi-pole pairs expand range |
+| `encoder_type_t` | `ENCODER_TYPE_SINCOS` |
+
+**Configuration** (`ENCSINCOS_config_t`) exposes gain (`s_gain`, `c_gain`), offset (`s_offset`, `c_offset`), a low-pass `filter_constant`, and a `phase_correction` angle to compensate for mechanical misalignment between the sine and cosine tracks.
+
+---
+
+## TLE5012 — `enc_tle5012`
+
+The TLE5012B from Infineon is a magnetic angle sensor with a proprietary SSC (Synchronous Serial Communication) interface that is compatible with software SPI.
+
+| Property | Value |
+|---|---|
+| Interface | SSC / SPI (software bit-bang) |
+| Resolution | 15-bit |
+| Absolute | Yes — single-turn |
+| `encoder_type_t` | `ENCODER_TYPE_TLE5012` |
+
+**Error types** (`tle5012_errortypes`):
+
+```c
+typedef enum tle5012_errortypes {
+    NO_ERROR               = 0x00,
+    SYSTEM_ERROR           = 0x01,  // Over/under voltage, no magnet, ROM defect
+    INTERFACE_ACCESS_ERROR = 0x02,  // Wrong address or lock
+    INVALID_ANGLE_ERROR    = 0x04,  // GMR element failure
+    ANGLE_SPEED_ERROR      = 0x08,  // Angular speed calculation error
+    CRC_ERROR              = 0xFF,  // CRC mismatch
+} tle5012_errortypes;
+```
+
+---
+
+## TS5700N8501 — `enc_ts5700n8501`
+
+The TS5700N8501 from Tamagawa Seiki is a serial absolute encoder commonly found on industrial servo motors. It communicates over a UART-based serial interface and provides both single-turn and multi-turn (ABM) position.
+
+| Property | Value |
+|---|---|
+| Interface | UART (serial) |
+| Resolution | 17-bit single-turn |
+| Absolute | Yes — single-turn and multi-turn (ABM counter) |
+| `encoder_type_t` | `ENCODER_TYPE_TS5700N8501` |
+
+The multi-turn counter is readable via `enc_ts5700n8501_get_abm()` and can be reset with `enc_ts5700n8501_reset_multiturn()`.
+
+```c
+// Read the 16-bit multi-turn (ABM) counter
+int16_t abm = enc_ts5700n8501_get_abm(&cfg);
+
+// Reset multi-turn counter
+enc_ts5700n8501_reset_multiturn(&cfg);
+```
+
+<Note>
+  The TS5700N8501 runs its communication in a dedicated ChibiOS thread due to the UART timing requirements. The raw 8-byte status frame is available at `cfg.state.raw_status` for advanced diagnostics.
+</Note>
+
+---
+
+## Implementing a custom encoder
+
+If none of the built-in drivers match your hardware, the encoder system supports a custom callback interface:
+
+```c
+// encoder.h
+void encoder_set_custom_callbacks(
+    float  (*read_deg)(void),
+    bool   (*has_fault)(void),
+    char * (*print_info)(void)
+);
+```
+
+Set `encoder_type_t` to `ENCODER_TYPE_CUSTOM` in the motor configuration and register your three callbacks. The FOC loop will call `read_deg()` on every current-control cycle.

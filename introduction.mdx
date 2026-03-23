@@ -1,0 +1,92 @@
+---
+title: 'Introduction'
+description: 'An open source DC/BLDC/FOC motor controller firmware for electric vehicles, robotics, and beyond.'
+keywords: ['VESC', 'motor controller', 'FOC', 'BLDC', 'open source', 'electric vehicle']
+---
+
+# Introduction
+
+VESC firmware is an open source motor controller firmware developed by Benjamin Vedder. It runs on a wide range of STM32-based hardware targets and supports DC, BLDC, and FOC (Field-Oriented Control) motor control modes. The project lives at [github.com/vedderb/bldc](https://github.com/vedderb/bldc) and is licensed under the GNU General Public License v3.0.
+
+## What VESC solves
+
+Controlling brushless motors well requires precise, real-time current and position sensing, configurable protection limits, and a reliable communication layer. VESC firmware provides all of this in a single, auditable codebase:
+
+- **Field-Oriented Control (FOC)** — smooth, efficient torque control with sensor or sensorless operation
+- **BLDC mode** — traditional six-step commutation for simpler setups
+- **DC motor support** — for brush motor applications
+- **CAN bus networking** — chain multiple controllers together with a single CAN cable
+- **Extensive protection** — over-current, over-voltage, over-temperature, and configurable hardware limits
+- **Custom UI support** — embed QML interfaces directly into VESC Tool via `conf_general.h`
+- **Open hardware abstraction** — a clean `hwconf/` layer makes porting to new boards straightforward
+
+## Who it is for
+
+<CardGroup cols={3}>
+  <Card title="Hobbyists" icon="wrench">
+    Build electric skateboards, scooters, and DIY e-bikes. Dozens of off-the-shelf boards are supported out of the box.
+  </Card>
+  <Card title="Engineers" icon="cpu">
+    Integrate VESC firmware into robotics, industrial actuators, and custom hardware using the documented hardware abstraction layer.
+  </Card>
+  <Card title="EV builders" icon="zap">
+    High-voltage targets such as the Trampa 100/500 and Ubox 126V handle serious electric vehicle drivetrains.
+  </Card>
+</CardGroup>
+
+## Project structure
+
+The repository is organized as follows:
+
+```text
+bldc/
+├── hwconf/              # Hardware configuration files, one folder per manufacturer
+│   ├── trampa/          # Trampa boards (VESC 6, 75/300, 100/250, 100/500, …)
+│   ├── vesc/            # VESC-branded boards (Basic, Classic, Duet, Maxim, …)
+│   ├── flipsky/         # Flipsky 75/100, 75/300 community boards
+│   ├── flipsky_official/# Flipsky V4, V6, 110-series official boards
+│   ├── makerx/          # MakerX GO-FOC series
+│   ├── Ubox/            # Ubox 75V, 100V, 126V controllers
+│   ├── stormcore/       # Stormcore 60D, 100D, 100S
+│   ├── shaman/          # Cheap FOCer 2, Little FOCer series
+│   ├── teamtriforceuk/  # A50S, A100S, A200S series
+│   └── …                # Many more manufacturers
+├── conf_general.h       # Global firmware configuration and version defines
+├── datatypes.h          # Core data types shared across the firmware
+├── mcconf_default.h     # Default motor controller configuration
+├── appconf_default.h    # Default application configuration
+├── Makefile             # Build system entry point
+├── make/                # OS-specific and toolchain makefiles
+├── tools/               # Downloaded toolchain (ARM GCC, Qt)
+└── build/               # Compiled firmware output
+```
+
+The firmware version is defined in `conf_general.h`:
+
+```c
+#define FW_VERSION_MAJOR        7
+#define FW_VERSION_MINOR        00
+```
+
+Every hardware target provides a `hw_<target>.h` header and a `hw_<target>.c` source file. The build system discovers all targets automatically by scanning `hwconf/` for `hw_*.h` files.
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Clone the repo, install the ARM toolchain, build your first firmware image, and flash it to your controller.
+  </Card>
+  <Card title="Supported hardware" icon="microchip" href="/supported-hardware">
+    Browse the full list of supported boards grouped by manufacturer.
+  </Card>
+  <Card title="Motor control" icon="settings" href="/motor-control">
+    Learn about FOC, BLDC, and DC control modes and how to tune them.
+  </Card>
+  <Card title="Communication" icon="radio" href="/communication">
+    CAN bus, UART, USB, and the VESC serial protocol.
+  </Card>
+</CardGroup>
+
+<Note>
+  The VESC community is active on the [VESC Project forums](https://vesc-project.com/forum) and on [Discord](https://discord.gg/JgvV5NwYts). Both are good places to ask hardware-specific questions.
+</Note>

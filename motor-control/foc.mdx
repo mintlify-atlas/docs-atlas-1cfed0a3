@@ -1,0 +1,295 @@
+---
+title: Field Oriented Control (FOC)
+description: FOC sensor modes, HFI, observer types, field weakening, and key configuration parameters for VESC firmware.
+keywords: [FOC, field oriented control, HFI, sensorless, hall sensor, encoder, observer, MTPA, field weakening]
+---
+
+Field Oriented Control (FOC) is the default and most capable motor control algorithm in VESC firmware. It controls the d-axis and q-axis currents independently in a rotating reference frame, enabling smooth torque, high efficiency, and precise speed and position control.
+
+## Sensor modes
+
+FOC sensor mode is configured via `mc_foc_sensor_mode` in `datatypes.h`. The default is `FOC_SENSOR_MODE_SENSORLESS`.
+
+```c
+typedef enum {
+    FOC_SENSOR_MODE_SENSORLESS = 0,
+    FOC_SENSOR_MODE_ENCODER,
+    FOC_SENSOR_MODE_HALL,
+    FOC_SENSOR_MODE_HFI,
+    FOC_SENSOR_MODE_HFI_START,
+    FOC_SENSOR_MODE_HFI_V2,
+    FOC_SENSOR_MODE_HFI_V3,
+    FOC_SENSOR_MODE_HFI_V4,
+    FOC_SENSOR_MODE_HFI_V5,
+    FOC_SENSOR_MODE_ENCODER_AB
+} mc_foc_sensor_mode;
+```
+
+<AccordionGroup>
+  <Accordion title="FOC_SENSOR_MODE_SENSORLESS">
+    The flux observer estimates rotor position from stator voltages and currents. No position sensor is required. The motor coasts through open-loop at low speeds until the observer locks in, controlled by `MCCONF_FOC_OPENLOOP_RPM` (default: 1500 ERPM) and the open-loop hysteresis/timing parameters.
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_ENCODER">
+    Uses an incremental (ABI) encoder for rotor position. Requires encoder offset calibration. Ratio and inversion are set by `MCCONF_FOC_ENCODER_RATIO` (default: 7.0) and `MCCONF_FOC_ENCODER_INVERTED` (default: false).
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_ENCODER_AB">
+    Encoder AB mode — uses only the A and B signals (no index pulse). Useful when the index channel is unavailable.
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_HALL">
+    Hall effect sensors provide 60-degree resolution commutation. Sensor angles are stored in the FOC hall table (`MCCONF_FOC_HALL_TAB_0` through `MCCONF_FOC_HALL_TAB_7`). Hall interpolation is disabled below `MCCONF_FOC_HALL_INTERP_ERPM` (default: 500 ERPM) to avoid noise at low speeds.
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_HFI">
+    High-Frequency Injection. A high-frequency voltage is superimposed on the motor to detect rotor position from inductance anisotropy. Intended for salient-pole motors (e.g., IPM motors). See the HFI section below.
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_HFI_START">
+    Sensorless mode that uses HFI only during startup and low-speed operation to resolve initial rotor position, then hands off to the sensorless observer. Avoids open-loop coasting on startup.
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_HFI_V2">
+    Revised HFI algorithm (V2) with a correction gain (`MCCONF_FOC_HFI_GAIN`, default: 0.3) and max error truncation (`MCCONF_FOC_HFI_MAX_ERR`, default: 0.30).
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_HFI_V3">
+    HFI V3 — an incremental variation of the V2 algorithm.
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_HFI_V4">
+    HFI V4 — further refined HFI variant.
+  </Accordion>
+  <Accordion title="FOC_SENSOR_MODE_HFI_V5">
+    HFI V5 — latest HFI variant with additional hysteresis control via `MCCONF_FOC_HFI_HYST` (default: 0.0).
+  </Accordion>
+</AccordionGroup>
+
+## HFI (High-Frequency Injection)
+
+HFI detects rotor position at standstill and low speeds by injecting a high-frequency test voltage and measuring the resulting current response. It requires a motor with significant inductance anisotropy (Ld ≠ Lq).
+
+### HFI key parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_FOC_HFI_VOLTAGE_START` | 20 V | Injection voltage during ambiguity resolution at startup |
+| `MCCONF_FOC_HFI_VOLTAGE_RUN` | 4 V | Injection voltage during normal HFI tracking |
+| `MCCONF_FOC_HFI_VOLTAGE_MAX` | 6 V | Injection voltage at maximum motor current |
+| `MCCONF_FOC_HFI_SAMPLES` | `HFI_SAMPLES_16` | Samples per electrical revolution (8, 16, or 32) |
+| `MCCONF_FOC_HFI_START_SAMPLES` | 5 | Samples used at startup to resolve pole ambiguity |
+| `MCCONF_FOC_SL_ERPM_HFI` | 3000 ERPM | ERPM above which the observer takes over from HFI |
+| `MCCONF_FOC_HFI_RESET_ERPM` | 500 ERPM | Reset HFI state when falling below this ERPM |
+| `MCCONF_FOC_HFI_OBS_OVR_SEC` | 0.001 s | Continue using observer for this long after entering HFI speed range |
+| `MCCONF_FOC_HFI_GAIN` | 0.3 | Correction gain for HFI V2 |
+| `MCCONF_FOC_HFI_MAX_ERR` | 0.30 | Truncate HFI error above this magnitude |
+| `MCCONF_FOC_HFI_HYST` | 0.0 | Sense vector offset hysteresis for HFI V5 |
+
+### HFI ambiguity resolution mode
+
+Because inductance anisotropy is 180° ambiguous, HFI requires a separate step to resolve the correct pole. The ambiguity mode is set by `mc_foc_hfi_amb_mode`:
+
+```c
+typedef enum {
+    FOC_AMB_MODE_SIX_VECTOR = 0,
+    FOC_AMB_MODE_D_SINGLE_PULSE,
+    FOC_AMB_MODE_D_DOUBLE_PULSE
+} mc_foc_hfi_amb_mode;
+```
+
+| Mode | Description |
+|---|---|
+| `FOC_AMB_MODE_SIX_VECTOR` | Applies voltage vectors in six directions and selects the strongest response. Default. |
+| `FOC_AMB_MODE_D_SINGLE_PULSE` | Applies a single d-axis pulse. |
+| `FOC_AMB_MODE_D_DOUBLE_PULSE` | Applies two d-axis pulses with opposite polarity for more reliable detection. |
+
+Ambiguity current and threshold are set by `MCCONF_FOC_HFI_AMB_CURRENT` (default: 60.0 A) and `MCCONF_FOC_HFI_AMB_TRES` (default: 15).
+
+## Position observer
+
+For sensorless operation, the flux observer estimates rotor position. The observer type is selected by `mc_foc_observer_type`:
+
+```c
+typedef enum {
+    FOC_OBSERVER_ORTEGA_ORIGINAL = 0,
+    FOC_OBSERVER_MXLEMMING,
+    FOC_OBSERVER_ORTEGA_LAMBDA_COMP,
+    FOC_OBSERVER_MXLEMMING_LAMBDA_COMP,
+    FOC_OBSERVER_MXV,
+    FOC_OBSERVER_MXV_LAMBDA_COMP,
+    FOC_OBSERVER_MXV_LAMBDA_COMP_LIN,
+} mc_foc_observer_type;
+```
+
+The default observer is `FOC_OBSERVER_MXLEMMING_LAMBDA_COMP`. Observer gain is set by `MCCONF_FOC_OBSERVER_GAIN` (default: 9×10⁷; suggested starting value: 600 / L). At low duty cycles the gain is scaled down by `MCCONF_FOC_OBSERVER_GAIN_SLOW` (default: 0.05).
+
+## Hybrid sensor / sensorless
+
+When using Hall or encoder feedback, you can configure the firmware to blend in the observer at higher speeds:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_FOC_SL_ERPM_START` | 2500 ERPM | Below this, only the sensor is used |
+| `MCCONF_FOC_SL_ERPM` | 3500 ERPM | Above this, only the observer is used |
+
+Between `MCCONF_FOC_SL_ERPM_START` and `MCCONF_FOC_SL_ERPM` the two sources are blended linearly.
+
+## Open-loop startup (sensorless)
+
+In sensorless mode the motor runs open-loop at low speeds before the observer has locked in. Key parameters:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_FOC_OPENLOOP_RPM` | 1500 ERPM | Open-loop speed target |
+| `MCCONF_FOC_OPENLOOP_RPM_LOW` | 0.0 | Fraction of `OPENLOOP_RPM` at minimum motor current |
+| `MCCONF_FOC_SL_OPENLOOP_HYST` | 0.1 s | Time below minimum RPM before entering open-loop |
+| `MCCONF_FOC_SL_OPENLOOP_TIME` | 0.05 s | Time to remain in open-loop after ramping up |
+| `MCCONF_FOC_SL_OPENLOOP_T_LOCK` | 0.0 s | Time to lock rotor in place at start of open-loop sequence |
+| `MCCONF_FOC_SL_OPENLOOP_T_RAMP` | 0.1 s | Ramp duration from 0 to open-loop RPM |
+| `MCCONF_FOC_SL_OPENLOOP_BOOST_Q` | 0.0 A | Q-axis current boost during open-loop |
+| `MCCONF_FOC_SL_OPENLOOP_MAX_Q` | -1.0 A | Q-axis current maximum during open-loop (-1 = disabled) |
+
+## Current controller
+
+The FOC current controller (inner PI loop) operates on the d and q axes:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_FOC_CURRENT_KP` | 0.03 | Proportional gain |
+| `MCCONF_FOC_CURRENT_KI` | 50.0 | Integral gain |
+| `MCCONF_FOC_F_ZV` | 25000 Hz | Zero-vector switching frequency |
+| `MCCONF_FOC_DT_US` | 0.12 µs | Dead-time compensation |
+
+### Current controller decoupling
+
+```c
+typedef enum {
+    FOC_CC_DECOUPLING_DISABLED = 0,
+    FOC_CC_DECOUPLING_CROSS,
+    FOC_CC_DECOUPLING_BEMF,
+    FOC_CC_DECOUPLING_CROSS_BEMF
+} mc_foc_cc_decoupling_mode;
+```
+
+The default is `FOC_CC_DECOUPLING_DISABLED`. Cross-coupling and BEMF feedforward can improve dynamic response at high speeds.
+
+## Motor parameters
+
+The observer and current controller use these motor-specific parameters:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_FOC_MOTOR_L` | 7 µH | Phase inductance |
+| `MCCONF_FOC_MOTOR_R` | 0.015 Ω | Phase resistance |
+| `MCCONF_FOC_MOTOR_FLUX_LINKAGE` | 0.00245 Wb | Flux linkage |
+| `MCCONF_FOC_MOTOR_LD_LQ_DIFF` | 0.0 H | Difference between d and q inductance (for MTPA) |
+
+<Tip>
+Use VESC Tool's motor measurement wizard to automatically detect resistance, inductance, and flux linkage for your specific motor.
+</Tip>
+
+## PLL speed estimator
+
+A phase-locked loop (PLL) tracks the rotor angle from the observer output:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_FOC_PLL_KP` | 2000.0 | PLL proportional gain |
+| `MCCONF_FOC_PLL_KI` | 30000.0 | PLL integral gain |
+
+## Field weakening
+
+Field weakening extends operating speed above the rated RPM by injecting negative d-axis current:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_FOC_FW_CURRENT_MAX` | 0.0 A | Maximum field weakening current (0 = disabled) |
+| `MCCONF_FOC_FW_DUTY_START` | 0.8 | Duty cycle fraction at which field weakening begins |
+| `MCCONF_FOC_FW_RAMP_TIME` | 0.0 s | Ramp time for field weakening current |
+| `MCCONF_FOC_FW_Q_CURRENT_FACTOR` | 0.05 | Fraction of FW current fed to the q-axis to decelerate when setpoint is 0 |
+
+<Warning>
+Field weakening increases motor and controller temperatures. Ensure adequate thermal headroom before enabling it.
+</Warning>
+
+## MTPA (Maximum Torque Per Amp)
+
+MTPA exploits d/q inductance asymmetry to maximize torque output at a given current. It is configured by `MCCONF_FOC_MTPA_MODE` and requires `MCCONF_FOC_MOTOR_LD_LQ_DIFF` to be non-zero.
+
+## FOC functions (mcpwm_foc)
+
+The `mcpwm_foc` module implements the FOC algorithm. You typically call it through `mc_interface`, but the direct API is available:
+
+```c
+// Initialization
+void mcpwm_foc_init(mc_configuration *conf_m1, mc_configuration *conf_m2);
+void mcpwm_foc_deinit(void);
+bool mcpwm_foc_init_done(void);
+void mcpwm_foc_set_configuration(mc_configuration *configuration);
+
+// Control
+void mcpwm_foc_set_duty(float dutyCycle);
+void mcpwm_foc_set_duty_noramp(float dutyCycle);
+void mcpwm_foc_set_pid_speed(float rpm);
+void mcpwm_foc_set_pid_pos(float pos);
+void mcpwm_foc_set_current(float current);
+void mcpwm_foc_set_brake_current(float current);
+void mcpwm_foc_set_handbrake(float current);
+void mcpwm_foc_set_openloop_current(float current, float rpm);
+void mcpwm_foc_set_openloop_phase(float current, float phase);
+void mcpwm_foc_set_openloop_duty(float dutyCycle, float rpm);
+void mcpwm_foc_set_openloop_duty_phase(float dutyCycle, float phase);
+void mcpwm_foc_set_fw_override(float current);  // override field weakening current
+void mcpwm_foc_release_motor(void);
+void mcpwm_foc_stop_pwm(bool is_second_motor);
+
+// State
+mc_state mcpwm_foc_get_state(void);
+mc_control_mode mcpwm_foc_control_mode(void);
+bool mcpwm_foc_is_dccal_done(void);
+
+// Speed and position
+float mcpwm_foc_get_rpm(void);
+float mcpwm_foc_get_rpm_fast(void);
+float mcpwm_foc_get_rpm_faster(void);
+float mcpwm_foc_get_phase(void);             // estimated rotor phase (degrees)
+float mcpwm_foc_get_phase_observer(void);    // observer phase estimate
+float mcpwm_foc_get_phase_bemf(void);        // BEMF-derived phase
+float mcpwm_foc_get_phase_encoder(void);     // encoder phase
+float mcpwm_foc_get_phase_hall(void);        // hall-derived phase
+
+// dq-frame values
+float mcpwm_foc_get_id(void);               // d-axis current
+float mcpwm_foc_get_iq(void);               // q-axis current
+float mcpwm_foc_get_id_set(void);
+float mcpwm_foc_get_iq_set(void);
+float mcpwm_foc_get_vd(void);               // d-axis voltage
+float mcpwm_foc_get_vq(void);               // q-axis voltage
+
+// Observer state
+float mcpwm_foc_get_est_lambda(void);       // estimated flux linkage
+float mcpwm_foc_get_est_res(void);          // estimated stator resistance
+float mcpwm_foc_get_est_ind(void);          // estimated inductance
+
+// Motor measurement utilities
+int mcpwm_foc_measure_resistance(float current, int samples, bool stop_after, float *resistance);
+int mcpwm_foc_measure_inductance(float duty, int samples, float *curr, float *ld_lq_diff, float *inductance);
+int mcpwm_foc_measure_inductance_current(float curr_goal, int samples, float *curr, float *ld_lq_diff, float *inductance);
+int mcpwm_foc_encoder_detect(float current, bool print, float *offset, float *ratio, bool *inverted);
+```
+
+## Sample modes
+
+FOC sampling behavior is configurable:
+
+```c
+// When to sample voltages for the control update
+typedef enum {
+    FOC_CONTROL_SAMPLE_MODE_V0 = 0,
+    FOC_CONTROL_SAMPLE_MODE_V0_V7,
+    FOC_CONTROL_SAMPLE_MODE_V0_V7_INTERPOL
+} mc_foc_control_sample_mode;
+
+// Which current sensor readings to use
+typedef enum {
+    FOC_CURRENT_SAMPLE_MODE_LONGEST_ZERO = 0,
+    FOC_CURRENT_SAMPLE_MODE_ALL_SENSORS,
+    FOC_CURRENT_SAMPLE_MODE_HIGH_CURRENT,
+    FOC_CURRENT_SAMPLE_MODE_BEST_SENSOR  // experimental
+} mc_foc_current_sample_mode;
+```
+
+Defaults are `FOC_CONTROL_SAMPLE_MODE_V0` and `FOC_CURRENT_SAMPLE_MODE_LONGEST_ZERO`.

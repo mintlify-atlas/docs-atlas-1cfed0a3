@@ -1,0 +1,110 @@
+---
+title: "Nunchuk application"
+description: "Use a Wii Nunchuk controller over I2C to control the motor with the joystick and buttons."
+keywords: ["vesc", "nunchuk", "wii", "i2c", "joystick", "controller"]
+---
+
+The Nunchuk application reads data from a standard Wii Nunchuk controller connected over I2C. The joystick Y-axis controls the motor output level while the C and Z buttons provide secondary functions such as braking, cruise control, and reverse.
+
+## Hardware connection
+
+The Nunchuk uses the I2C bus on the VESC. Wire it to the I2C pins on your hardware's expansion header:
+
+| Nunchuk wire | VESC signal |
+|---|---|
+| White (SCL) | I2C clock |
+| Green (SDA) | I2C data |
+| Red (3.3 V) | 3.3 V supply |
+| Yellow (GND) | Ground |
+
+<Note>
+Original Nintendo Nunchuk controllers and most aftermarket clones work with this application. The firmware communicates over I2C at the standard Nunchuk address `0x52`.
+</Note>
+
+## Control types
+
+```c
+typedef enum {
+    CHUK_CTRL_TYPE_NONE = 0,
+    CHUK_CTRL_TYPE_CURRENT,
+    CHUK_CTRL_TYPE_CURRENT_NOREV,
+    CHUK_CTRL_TYPE_CURRENT_BIDIRECTIONAL
+} chuk_control_type;
+```
+
+| Type | Description |
+|---|---|
+| `CURRENT` | Current control. Smart reverse available via Z button hold. |
+| `CURRENT_NOREV` | Current control, forward only. |
+| `CURRENT_BIDIRECTIONAL` | Full bidirectional current control without smart reverse. |
+
+## Button functions
+
+The Nunchuk has two buttons, C (upper) and Z (lower trigger):
+
+| Button | Function |
+|---|---|
+| **Z** | Braking when pressed while rolling. Hold from idle to activate smart reverse. |
+| **C** | Cruise control — locks the current output level when pressed. |
+
+Button state is exposed through the runtime API:
+
+```c
+bool app_nunchuk_get_bt_c(void);   // C button state
+bool app_nunchuk_get_bt_z(void);   // Z button state
+bool app_nunchuk_get_is_rev(void); // Currently in reverse
+```
+
+## Configuration struct
+
+```c
+typedef struct {
+    chuk_control_type ctrl_type;
+    float hyst;
+    float ramp_time_pos;
+    float ramp_time_neg;
+    float stick_erpm_per_s_in_cc;
+    float throttle_exp;
+    float throttle_exp_brake;
+    thr_exp_mode throttle_exp_mode;
+    bool multi_esc;
+    bool tc;
+    float tc_max_diff;
+    bool use_smart_rev;
+    float smart_rev_max_duty;
+    float smart_rev_ramp_time;
+} chuk_config;
+```
+
+### Key parameters
+
+| Field | Default | Description |
+|---|---|---|
+| `hyst` | 0.15 | Joystick deadband around center. |
+| `ramp_time_pos` | 0.4 s | Positive output ramp time. |
+| `ramp_time_neg` | 0.2 s | Negative output ramp time. |
+| `stick_erpm_per_s_in_cc` | 3000 ERPM/s | Speed change rate when adjusting cruise control with the joystick. |
+| `use_smart_rev` | `true` | Enables timed smart-reverse on Z button hold. |
+| `smart_rev_max_duty` | 0.07 | Maximum duty during smart reverse. |
+| `smart_rev_ramp_time` | 3.0 s | Time Z must be held to enter smart reverse. |
+| `multi_esc` | `true` | Forwards command to CAN-connected VESCs. |
+| `tc` | `false` | Traction control between paired ESCs. |
+
+## Timeout
+
+If no I2C data is received within `LOCAL_TIMEOUT` (2000 ms, defined in `app_nunchuk.c`), the output is cut. This protects against a disconnected cable during operation.
+
+## Runtime API
+
+```c
+void app_nunchuk_start(void);
+void app_nunchuk_stop(void);
+void app_nunchuk_configure(chuk_config *conf);
+float app_nunchuk_get_decoded_x(void);   // Joystick X-axis (−1 to 1)
+float app_nunchuk_get_decoded_y(void);   // Joystick Y-axis (−1 to 1)
+bool  app_nunchuk_get_bt_c(void);
+bool  app_nunchuk_get_bt_z(void);
+bool  app_nunchuk_get_is_rev(void);
+float app_nunchuk_get_update_age(void);  // Seconds since last update
+void  app_nunchuk_update_output(chuck_data *data);
+```

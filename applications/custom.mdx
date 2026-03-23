@@ -1,0 +1,177 @@
+---
+title: "Custom application"
+description: "Implement your own motor control logic directly in firmware using the custom application template."
+keywords: ["vesc", "custom application", "firmware", "app_custom", "template", "c"]
+---
+
+The custom application (`APP_CUSTOM`) lets you run arbitrary C code inside the VESC firmware. You get full access to the motor control interface, CAN bus, ADC inputs, timers, and every other peripheral — with no overhead from an external protocol.
+
+## Template structure
+
+The starting point is `applications/app_custom_template.c`. It implements the three functions that the application framework calls:
+
+```c
+void app_custom_start(void);
+void app_custom_stop(void);
+void app_custom_configure(app_configuration *conf);
+```
+
+And provides a main thread plus optional callbacks:
+
+```c
+static THD_FUNCTION(my_thread, arg);
+static void pwm_callback(void);
+static void terminal_test(int argc, const char **argv);
+```
+
+## Full template
+
+```c
+#include "app.h"
+#include "ch.h"
+#include "hal.h"
+
+// Some useful includes
+#include "mc_interface.h"
+#include "utils_math.h"
+#include "encoder/encoder.h"
+#include "terminal.h"
+#include "comm_can.h"
+#include "hw.h"
+#include "commands.h"
+#include "timeout.h"
+
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
+
+// Threads
+static THD_FUNCTION(my_thread, arg);
+static THD_WORKING_AREA(my_thread_wa, 1024);
+
+// Private functions
+static void pwm_callback(void);
+static void terminal_test(int argc, const char **argv);
+
+// Private variables
+static volatile bool stop_now = true;
+static volatile bool is_running = false;
+
+// Called when the custom application is started.
+void app_custom_start(void) {
+    mc_interface_set_pwm_callback(pwm_callback);
+
+    stop_now = false;
+    chThdCreateStatic(my_thread_wa, sizeof(my_thread_wa),
+            NORMALPRIO, my_thread, NULL);
+
+    // Register a terminal command in VESC Tool.
+    terminal_register_command_callback(
+            "custom_cmd",
+            "Print the number d",
+            "[d]",
+            terminal_test);
+}
+
+// Called when the custom application is stopped.
+void app_custom_stop(void) {
+    mc_interface_set_pwm_callback(0);
+    terminal_unregister_callback(terminal_test);
+
+    stop_now = true;
+    while (is_running) {
+        chThdSleepMilliseconds(1);
+    }
+}
+
+void app_custom_configure(app_configuration *conf) {
+    (void)conf;
+    // Read parameters from conf if needed.
+}
+
+static THD_FUNCTION(my_thread, arg) {
+    (void)arg;
+    chRegSetThreadName("App Custom");
+    is_running = true;
+
+    for (;;) {
+        if (stop_now) {
+            is_running = false;
+            return;
+        }
+
+        timeout_reset(); // Reset timeout watchdog.
+
+        // Your motor control logic goes here.
+        // mc_interface.h exposes the full motor API.
+
+        chThdSleepMilliseconds(10);
+    }
+}
+
+static void pwm_callback(void) {
+    // Called every control iteration in interrupt context.
+    // Keep this function short and avoid blocking calls.
+}
+
+static void terminal_test(int argc, const char **argv) {
+    if (argc == 2) {
+        int d = -1;
+        sscanf(argv[1], "%d", &d);
+        commands_printf("You have entered %d", d);
+
+        // Read ADC inputs on the COMM header.
+        commands_printf("ADC1: %.2f V ADC2: %.2f V",
+                (double)ADC_VOLTS(ADC_IND_EXT),
+                (double)ADC_VOLTS(ADC_IND_EXT2));
+    } else {
+        commands_printf("This command requires one argument.\n");
+    }
+}
+```
+
+## Key concepts
+
+### Thread lifecycle
+
+`stop_now` and `is_running` are the two flags that safely shut down the thread. `app_custom_stop` sets `stop_now = true` and then busy-waits until `is_running` becomes `false`. The thread must check `stop_now` on every iteration and return when it is set.
+
+### Timeout watchdog
+
+Call `timeout_reset()` inside your main loop on every iteration where the system is operating normally. If `timeout_reset` is not called within the configured timeout window (`APPCONF_TIMEOUT_MSEC`, default 1000 ms), the firmware applies the brake current defined by `APPCONF_TIMEOUT_BRAKE_CURRENT` and stops motor output.
+
+<Warning>
+Forgetting `timeout_reset()` in your loop will cause the motor to stop after one second of running your custom application.
+</Warning>
+
+### PWM callback
+
+`pwm_callback` is invoked every control iteration at the PWM switching frequency (typically tens of kHz). Keep it very short. Do not call blocking functions or allocate memory inside it.
+
+### Motor control API
+
+The `mc_interface.h` header exposes the full motor control API. Common functions:
+
+```c
+void  mc_interface_set_current(float current);
+void  mc_interface_set_brake_current(float current);
+void  mc_interface_set_duty(float dutyCycle);
+void  mc_interface_set_pid_speed(float rpm);
+float mc_interface_get_rpm(void);
+float mc_interface_get_tot_current(void);
+float mc_interface_temp_fet_filtered(void);
+```
+
+### Terminal commands
+
+Register custom commands with `terminal_register_command_callback`. They appear in the VESC Tool **Terminal** tab and can be used for debugging and calibration during development.
+
+## Framework API
+
+```c
+void app_custom_start(void);
+void app_custom_stop(void);
+void app_custom_configure(app_configuration *conf);
+```
+
+These three functions are called by the main application dispatcher whenever the configuration changes or the application is started or stopped. You must implement all three.

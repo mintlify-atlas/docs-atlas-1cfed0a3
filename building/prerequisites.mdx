@@ -1,0 +1,111 @@
+---
+title: 'Prerequisites'
+description: 'Install the tools and dependencies required to build VESC firmware.'
+---
+
+Before you can build VESC firmware, you need a few system tools and the ARM cross-compiler toolchain.
+
+## System dependencies
+
+<Tabs>
+  <Tab title="Ubuntu / Linux">
+    Install the required packages with `apt`:
+
+    ```bash
+    sudo apt install git build-essential libgl-dev libxcb-xinerama0 wget git-gui
+    ```
+
+    The packages provide:
+    - `git` — version control
+    - `build-essential` — `make` and core build tools
+    - `libgl-dev` — OpenGL development headers (required for Qt tools)
+    - `libxcb-xinerama0` — X11 multi-monitor support (required for Qt tools)
+    - `wget` — used by the SDK installer
+
+    <Note>
+      To use the STLink v2 programmer without root privileges, add the udev rules:
+
+      ```bash
+      wget vedder.se/Temp/49-stlinkv2.rules
+      sudo mv 49-stlinkv2.rules /etc/udev/rules.d/
+      sudo udevadm trigger
+      ```
+    </Note>
+  </Tab>
+  <Tab title="macOS">
+    Install Git and `make` via Xcode command-line tools if not already present:
+
+    ```bash
+    xcode-select --install
+    ```
+
+    Optionally install flashing tools via Homebrew:
+
+    ```bash
+    brew install stlink
+    brew install openocd
+    ```
+  </Tab>
+  <Tab title="Windows">
+    <Steps>
+      <Step title="Install Chocolatey">
+        Follow the instructions at [https://chocolatey.org/install](https://chocolatey.org/install) to install the Chocolatey package manager.
+      </Step>
+      <Step title="Install Make">
+        Open a **Windows PowerShell** terminal (do not run as administrator — this will break things):
+
+        ```powershell
+        choco install make
+        ```
+      </Step>
+      <Step title="Install Git">
+        Download Git from [https://git-scm.com/download/win](https://git-scm.com/download/win). During installation, select the option to add Git to your PATH (Environment Variables).
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Clone the repository
+
+```bash
+git clone http://github.com/vedderb/bldc.git
+cd bldc
+git checkout origin/master
+```
+
+## Install the ARM toolchain
+
+The firmware requires the GNU ARM GCC cross-compiler. The Makefile includes an installer target that downloads and sets up the toolchain automatically:
+
+```bash
+make arm_sdk_install
+```
+
+This installs the toolchain into the `tools/` directory inside the repository. All build output is placed in the `build/` directory.
+
+<Tip>
+  You do not need to install `arm-none-eabi-gcc` globally. The `make arm_sdk_install` target manages a local copy so the build is self-contained.
+</Tip>
+
+## Python 3 and pip (IDE only)
+
+If you plan to use the Qt Creator IDE integration, you also need Python 3 and pip. These are used by the `make qt_install` target.
+
+<Tabs>
+  <Tab title="Ubuntu / macOS">
+    Python 3 and pip are typically available or installable through your system package manager:
+
+    ```bash
+    # Ubuntu
+    sudo apt install python3 python3-pip
+
+    # macOS (via Homebrew)
+    brew install python
+    ```
+  </Tab>
+  <Tab title="Windows">
+    Download Python 3 from [https://www.python.org/downloads/](https://www.python.org/downloads/). During installation, check the box to **Add Python to your PATH**.
+  </Tab>
+</Tabs>
+
+See [IDE setup](/building/ide-setup) for the full Qt Creator installation steps.

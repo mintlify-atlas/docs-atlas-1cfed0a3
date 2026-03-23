@@ -1,0 +1,274 @@
+---
+title: 'Examples'
+description: 'Practical LispBM script examples for motor control, sensor reading, CAN communication, and GPIO on VESC.'
+keywords: ['lispbm', 'vesc', 'examples', 'motor control', 'can bus', 'imu', 'set-duty', 'set-rpm', 'conf-get']
+---
+
+The following examples demonstrate common patterns for LispBM scripting on VESC. Each example is a complete, runnable script unless otherwise noted. Copy them into the VESC Tool scripting editor and upload to try them out.
+
+<Note>
+  VESC Tool ships with a built-in collection of example scripts accessible from the scripting editor menu. These examples are a good starting point for many common tasks.
+</Note>
+
+## Simple loop with status printing
+
+The most basic VESC script structure: an initialization block followed by an infinite loop that periodically prints status and resets the motor timeout.
+
+```clojure
+; Print firmware version and hardware name on startup
+(print (sysinfo 'fw-ver))
+(print (sysinfo 'hw-name))
+
+; Main loop: print input voltage every 500 ms
+(loopwhile t
+  (progn
+    (print (str-from-n (get-vin) "Vin: %.2f V"))
+    (sleep 0.5)))
+```
+
+## Blinking AUX output
+
+Toggle the AUX1 output on and off at 1 Hz. This is the VESC equivalent of a "blink LED" example.
+
+```clojure
+; AUX output mode must be set to Unused in motor settings
+(define state 0)
+
+(loopwhile t
+  (progn
+    (set-aux 1 state)
+    (setvar 'state (if (= state 0) 1 0))
+    (sleep 0.5)))
+```
+
+## Reading motor RPM and reacting
+
+Read the motor RPM and apply different behavior depending on the speed.
+
+```clojure
+(defun handle-speed (rpm)
+  (cond
+    ((< (abs rpm) 100)
+     (print "Motor stopped"))
+    ((< (abs rpm) 2000)
+     (print (str-from-n rpm "Low speed: %.0f RPM")))
+    (t
+     (print (str-from-n rpm "High speed: %.0f RPM")))))
+
+(loopwhile t
+  (progn
+    (handle-speed (get-rpm))
+    (sleep 0.2)))
+```
+
+## Controlling motor speed with set-duty
+
+Ramp the motor duty cycle from 0 to 30% over 3 seconds, hold it, then brake.
+
+```clojure
+; Ramp up over 3 seconds
+(looprange i 0 30
+  (progn
+    (set-duty (/ i 100.0))
+    (timeout-reset)
+    (sleep 0.1)))
+
+; Hold at 30% for 2 seconds
+(define t-start (systime))
+(loopwhile (< (secs-since t-start) 2.0)
+  (progn
+    (set-duty 0.3)
+    (timeout-reset)
+    (sleep 0.01)))
+
+; Brake
+(set-brake 5.0)
+(sleep 1.0)
+
+; Release
+(set-current 0.0)
+(print "Done")
+```
+
+<Warning>
+  Always call `(timeout-reset)` at least once per second whenever the motor is running from a script. If the script stops calling it — for example due to a crash — the motor will automatically stop after the timeout period configured in App Settings → General.
+</Warning>
+
+## RPM control with soft start
+
+Use `set-rpm` to drive a motor to a target speed, reading configuration to stay within safe limits.
+
+```clojure
+(define max-erpm (conf-get 'l-max-erpm))
+(define target-rpm (min 3000.0 max-erpm))
+
+(print (str-from-n max-erpm "Max ERPM from config: %.0f"))
+(print (str-from-n target-rpm "Targeting: %.0f RPM"))
+
+(loopwhile t
+  (progn
+    (set-rpm target-rpm)
+    (timeout-reset)
+    (print (str-from-n (get-rpm) "Current RPM: %.0f"))
+    (sleep 0.05)))
+```
+
+## Reading configuration values
+
+Inspect key motor configuration parameters at startup. Useful for debugging or adapting script behavior to the configured hardware.
+
+```clojure
+(define print-conf (lambda (sym label)
+  (print (str-merge label (str-from-n (conf-get sym) " %.2f")))))
+
+(print-conf 'l-current-max     "Max current (A): ")
+(print-conf 'l-current-min     "Min current (A): ")
+(print-conf 'l-max-erpm        "Max ERPM:        ")
+(print-conf 'l-max-vin         "Max voltage (V): ")
+(print-conf 'si-motor-poles    "Motor poles:     ")
+(print-conf 'si-gear-ratio     "Gear ratio:      ")
+(print-conf 'si-wheel-diameter "Wheel dia (m):   ")
+(print-conf 'controller-id     "CAN ID:          ")
+```
+
+## IMU tilt detection
+
+Read the IMU roll angle and print a warning when the board tilts beyond a threshold.
+
+```clojure
+(define tilt-threshold 0.35)  ; ~20 degrees in radians
+
+(loopwhile t
+  (progn
+    (define rpy (get-imu-rpy))
+    (define roll  (ix rpy 0))
+    (define pitch (ix rpy 1))
+
+    (if (> (abs roll) tilt-threshold)
+      (print (str-from-n (* roll 57.3) "Warning: roll %.1f deg")))
+
+    (if (> (abs pitch) tilt-threshold)
+      (print (str-from-n (* pitch 57.3) "Warning: pitch %.1f deg")))
+
+    (sleep 0.1)))
+```
+
+## CAN bus communication
+
+### Sending a raw CAN frame
+
+```clojure
+; Send a standard 11-bit CAN frame to ID 0x100
+(can-send-sid 0x100 (list 0x01 0x02 0x03 0x04))
+```
+
+### Reading motor state from another VESC over CAN
+
+Use `can-cmd` to execute a LispBM expression on a remote VESC and return the result:
+
+```clojure
+(define remote-id 2)  ; CAN ID of the other VESC
+
+(loopwhile t
+  (progn
+    (define remote-rpm (can-cmd remote-id '(get-rpm)))
+    (define remote-vin (can-cmd remote-id '(get-vin)))
+
+    (print (str-from-n remote-rpm "Remote RPM: %.0f"))
+    (print (str-from-n remote-vin "Remote Vin: %.2f V"))
+
+    (sleep 0.5)))
+```
+
+### Listing CAN devices
+
+```clojure
+; Print all VESC devices visible on the CAN bus
+(print (can-list-devs))
+```
+
+### Receiving CAN frames with events
+
+Enable events to receive CAN frames asynchronously without polling:
+
+```clojure
+(event-enable 'event-can-sid)
+
+(loopwhile t
+  (progn
+    (define evt (recv 0.5))  ; wait up to 0.5 s for an event
+    (if (eq (type-of evt) type-list)
+      (match evt
+        ((event-can-sid id data)
+         (print (str-merge "CAN SID: " (str-from-n id "0x%X")
+                           " data: " (to-str data)))))))
+```
+
+## Motor fault monitoring
+
+Check for faults and print them to the console:
+
+```clojure
+(defun check-faults ()
+  (define fault (get-fault))
+  (if (not (eq fault 'fault-none))
+    (print (str-merge "FAULT: " (to-str fault)))))
+
+(loopwhile t
+  (progn
+    (check-faults)
+    (sleep 0.1)))
+```
+
+## EEPROM: persisting a value across reboots
+
+Store a trip counter in EEPROM so it survives power cycles:
+
+```clojure
+; Read trip counter from EEPROM slot 0 (default 0.0 if unset)
+(define trip-m (eeprom-read-f 0))
+(print (str-from-n trip-m "Trip: %.1f m"))
+
+; Accumulate distance every 100 ms and save every 10 seconds
+(define last-save (systime))
+
+(loopwhile t
+  (progn
+    (setvar 'trip-m (+ trip-m (* (get-speed) 0.1)))
+
+    (if (> (secs-since last-save) 10.0)
+      (progn
+        (eeprom-store-f 0 trip-m)
+        (setvar 'last-save (systime))
+        (print (str-from-n trip-m "Saved trip: %.1f m"))))
+
+    (sleep 0.1)))
+```
+
+## Spawning a background monitoring thread
+
+Run motor control in the main thread and monitor temperature in a background thread:
+
+```clojure
+; Background thread: monitor temperatures
+(spawn (lambda ()
+  (loopwhile t
+    (progn
+      (define fet-temp (get-temp-fet))
+      (define mot-temp (get-temp-mot))
+
+      (if (> fet-temp 80.0)
+        (print (str-from-n fet-temp "High FET temp: %.1f C")))
+
+      (if (> mot-temp 100.0)
+        (print (str-from-n mot-temp "High motor temp: %.1f C")))
+
+      (sleep 1.0)))))
+
+; Main thread: motor control
+(loopwhile t
+  (progn
+    (set-duty 0.2)
+    (timeout-reset)
+    (sleep 0.01)))
+```

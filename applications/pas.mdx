@@ -1,0 +1,112 @@
+---
+title: "PAS application"
+description: "Configure pedal assist for e-bikes using a cadence or torque sensor."
+keywords: ["vesc", "pas", "pedal assist", "e-bike", "cadence", "torque sensor"]
+---
+
+The PAS (Pedal Assist System) application is designed for e-bikes. It reads a crank rotation sensor and scales motor current proportionally to pedaling cadence or torque, providing assistance that feels natural under pedaling effort.
+
+## Sensor types
+
+The firmware currently supports one sensor type:
+
+```c
+typedef enum {
+    PAS_SENSOR_TYPE_QUADRATURE = 0
+} pas_sensor_type;
+```
+
+A quadrature PAS sensor outputs two phase-shifted pulse trains, allowing the firmware to detect both cadence (speed of pedaling) and pedaling direction.
+
+## Control types
+
+```c
+typedef enum {
+    PAS_CTRL_TYPE_NONE = 0,
+    PAS_CTRL_TYPE_CADENCE,
+    PAS_CTRL_TYPE_TORQUE,
+    PAS_CTRL_TYPE_TORQUE_WITH_CADENCE_TIMEOUT
+} pas_control_type;
+```
+
+| Type | Description |
+|---|---|
+| `CADENCE` | Motor current scales with pedal RPM between `pedal_rpm_start` and `pedal_rpm_end`. |
+| `TORQUE` | Motor current scales with measured crank torque. |
+| `TORQUE_WITH_CADENCE_TIMEOUT` | Torque mode, but output cuts if cadence drops to zero for more than `MAX_MS_WITHOUT_CADENCE` (1000 ms). |
+
+## Configuration struct
+
+```c
+typedef struct {
+    pas_control_type ctrl_type;
+    pas_sensor_type sensor_type;
+    float current_scaling;
+    float pedal_rpm_start;
+    float pedal_rpm_end;
+    bool invert_pedal_direction;
+    uint8_t magnets;
+    bool use_filter;
+    float ramp_time_pos;
+    float ramp_time_neg;
+    uint32_t update_rate_hz;
+} pas_config;
+```
+
+### Key parameters
+
+| Field | Default | Description |
+|---|---|---|
+| `pedal_rpm_start` | 10 RPM | Cadence at which assist begins. |
+| `pedal_rpm_end` | 180 RPM | Cadence at which assist reaches maximum. |
+| `current_scaling` | 0.1 | Fraction of maximum motor current applied at full assist. |
+| `magnets` | 24 | Number of magnet pulses per crank revolution on the sensor. |
+| `invert_pedal_direction` | `false` | Swap forward/reverse pedaling direction detection. |
+| `use_filter` | `true` | Smooths cadence measurement with a moving-average filter. |
+| `safe_start` | `true` | Requires pedaling to stop and restart before assist is allowed after power-on. |
+| `ramp_time_pos` | 0.6 s | Ramp time for increasing assist. |
+| `ramp_time_neg` | 0.3 s | Ramp time for decreasing assist. |
+| `update_rate_hz` | 500 Hz | Control loop rate. |
+
+## Timing constants
+
+Defined in `app_pas.c`:
+
+```c
+#define PEDAL_INPUT_TIMEOUT                  0.2    // seconds
+#define MAX_MS_WITHOUT_CADENCE_OR_TORQUE     5000   // ms
+#define MAX_MS_WITHOUT_CADENCE               1000   // ms
+#define MIN_MS_WITHOUT_POWER                 500    // ms
+```
+
+If no sensor pulses arrive within `PEDAL_INPUT_TIMEOUT` (0.2 s), the pedal RPM reading is treated as zero. If cadence is absent for longer than `MAX_MS_WITHOUT_CADENCE_OR_TORQUE` (5 s), motor output stops entirely.
+
+## Wiring
+
+Connect the PAS sensor to the expansion connector pins designated for quadrature input on your VESC hardware variant. The sensor requires:
+
+- Signal A and Signal B pulse outputs (open-drain or push-pull, 3.3 V compatible)
+- 5 V or 3.3 V supply
+- Common ground
+
+<Warning>
+Do not connect a 5 V sensor output directly if your VESC hardware input pins are 3.3 V only. Use a resistor divider or level shifter.
+</Warning>
+
+## Combining with ADC throttle
+
+Select `APP_ADC_PAS` to run both the ADC throttle application and PAS simultaneously. In this mode the ADC throttle acts as an override: if the rider applies the throttle lever, ADC output takes precedence over pedal assist.
+
+## Runtime API
+
+```c
+void  app_pas_start(bool is_primary_output);
+void  app_pas_stop(void);
+bool  app_pas_is_running(void);
+void  app_pas_configure(pas_config *conf);
+float app_pas_get_current_target_rel(void); // Relative current target (0–1)
+float app_pas_get_pedal_rpm(void);
+void  app_pas_set_current_sub_scaling(float current_sub_scaling);
+```
+
+`app_pas_set_current_sub_scaling` lets another module (such as a throttle override) reduce the PAS output current without modifying the stored configuration.

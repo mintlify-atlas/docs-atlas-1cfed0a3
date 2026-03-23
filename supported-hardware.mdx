@@ -1,0 +1,297 @@
+---
+title: 'Supported hardware'
+description: 'All hardware targets supported by VESC firmware, grouped by manufacturer.'
+keywords: ['VESC', 'hardware', 'boards', 'targets', 'Trampa', 'FlipSky', 'MakerX', 'Ubox', 'Stormcore']
+---
+
+# Supported hardware
+
+VESC firmware supports a large and growing set of hardware targets. The build system discovers targets automatically by scanning the `hwconf/` directory for `hw_*.h` files, so the authoritative list always comes from your local checkout.
+
+<Tip>
+  Run `make` in the repository root to print the complete list of board names for your current checkout:
+
+  ```bash
+  make
+  ```
+
+  The `[Firmware]` section of the output lists every available target name.
+</Tip>
+
+## Selecting a target when building
+
+Pass your target name directly to `make`:
+
+```bash
+make <target>
+```
+
+For example, to build for the Trampa VESC 100/250:
+
+```bash
+make 100_250
+```
+
+The compiled output lands in `build/<target>/`. Some boards also expose a `_no_limits` variant that disables the hardware protection limits — use these only if you know what you are doing.
+
+---
+
+## Trampa
+
+Trampa manufactures the reference VESC hardware and produces a broad range from entry-level to high-power EV targets.
+
+| Target | Board |
+|--------|-------|
+| `vesc6` | VESC 6 (original) |
+| `60_75` | VESC 60/75 |
+| `60_alva` | VESC 60 Alva edition |
+| `75_300` | VESC 75/300 |
+| `75_300_MKIV` | VESC 75/300 Mark IV |
+| `100_250` | VESC 100/250 |
+| `100_250_MKIII` | VESC 100/250 Mark III |
+| `100_500` | VESC 100/500 |
+| `140_300` | VESC 140/300 |
+| `str500` | STR500 |
+| `hd` | HD series |
+| `rb` | RB series |
+| `sparkf` | Spark F |
+| `vesc_edu` | VESC EDU |
+| `vesc_gp` | VESC GP |
+
+---
+
+## VESC (official branded boards)
+
+The `vesc/` directory covers officially branded VESC controllers separate from the Trampa line.
+
+| Target | Board |
+|--------|-------|
+| `basic` | VESC Basic |
+| `classic` | VESC Classic |
+| `classicp` | VESC Classic P |
+| `duet` | VESC Duet |
+| `duet_xs` | VESC Duet XS |
+| `maxim` | VESC Maxim |
+| `maximp` | VESC Maxim P |
+| `minim` | VESC Minim |
+| `pronto` | VESC Pronto |
+| `str365` | STR365 |
+
+---
+
+## FlipSky (official)
+
+Official FlipSky boards with full hardware support files.
+
+| Target | Board |
+|--------|-------|
+| `flipsky_60` | FlipSky V6 (60A) |
+| `flipsky_60_mk5` | FlipSky V6 Mark 5 |
+| `flipsky_v4` | FlipSky V4 series |
+| `flipsky_75` | FlipSky 75V series |
+| `flipsky_75_450` | FlipSky 75V/450A |
+| `flipsky_110_100` | FlipSky 110V/100A |
+| `flipsky_110_200` | FlipSky 110V/200A |
+| `flipsky_110_300` | FlipSky 110V/300A |
+| `flipsky_110_400` | FlipSky 110V/400A |
+
+---
+
+## FlipSky (community)
+
+Community-supported FlipSky variants in the `flipsky/` directory.
+
+| Target | Board |
+|--------|-------|
+| `75_100` | FlipSky 75/100 |
+| `75_100_V2` | FlipSky 75/100 V2 |
+| `75_100_V2_0005ohm` | FlipSky 75/100 V2 (0.0005 Ω shunt) |
+| `75_100_V2_005ohm` | FlipSky 75/100 V2 (0.005 Ω shunt) |
+| `fsesc_75_200_alu` | FlipSky 75/200 Aluminium |
+| `fsesc_75_300` | FlipSky 75/300 |
+
+---
+
+## MakerX (GO-FOC series)
+
+| Target | Board |
+|--------|-------|
+| `go_foc_dv6_pro` | GO-FOC DV6 Pro |
+| `go_foc_g300` | GO-FOC G300 |
+| `go_foc_hi200` | GO-FOC HI200 |
+| `go_foc_hv200` | GO-FOC HV200 |
+| `go_foc_m100` | GO-FOC M100 |
+
+---
+
+## Makerbase
+
+| Target | Board |
+|--------|-------|
+| `75_100` (Makerbase) | Makerbase 75/100 |
+| `75_100_V2` (Makerbase) | Makerbase 75/100 V2 |
+| `75_200_V2` | Makerbase 75/200 V2 |
+| `100_300_HP` | Makerbase 100/300 HP |
+| `84_100_HP` | Makerbase 84/100 HP |
+| `84_200_HP` | Makerbase 84/200 HP |
+
+---
+
+## Ubox
+
+Ubox targets span 75 V, 100 V, and 126 V power levels.
+
+| Target | Board |
+|--------|-------|
+| `ubox_single_80` | Ubox Single 80V |
+| `ubox_single_100` | Ubox Single 100V |
+| `ubox_single_85_200` | Ubox Single 85V/200A |
+| `ubox_v2_100` | Ubox V2 100V |
+| `ubox_126v` | Ubox 126V |
+| `ubox_75v` | Ubox 75V |
+
+---
+
+## Stormcore
+
+| Target | Board |
+|--------|-------|
+| `stormcore_60d` | Stormcore 60D |
+| `stormcore_100d` | Stormcore 100D |
+| `stormcore_100s` | Stormcore 100S |
+
+---
+
+## Team Triforce UK
+
+| Target | Board |
+|--------|-------|
+| `a50s_v22` | A50S V2.2 |
+| `a50s_v23` | A50S V2.3 |
+| `a50s_v23c` | A50S V2.3C |
+| `a50s_dual` | A50S Dual |
+| `a200s_v2` | A200S V2 |
+| `a200s_v3` | A200S V3 |
+| `a200s_v4` | A200S V4 |
+| `a100s_v4` | A100S V4 |
+
+---
+
+## Shaman
+
+| Target | Board |
+|--------|-------|
+| `cheap_focer_2` | Cheap FOCer 2 |
+| `little_focer` | Little FOCer |
+| `little_focer_4` | Little FOCer 4 |
+| `solo` | Solo |
+
+---
+
+## Floatwheel
+
+| Target | Board |
+|--------|-------|
+| `adv_core` | Floatwheel ADV (core) |
+| `adv200` | Floatwheel ADV200 |
+| `adv500` | Floatwheel ADV500 |
+
+---
+
+## JetFleet
+
+| Target | Board |
+|--------|-------|
+| `JetFleetF6_20s` | JetFleet F6 (20S) |
+| `JetFleetF6_24s` | JetFleet F6 (24S) |
+| `JetFleetF6_32s` | JetFleet F6 (32S) |
+
+---
+
+## Fungineers
+
+| Target | Board |
+|--------|-------|
+| `fungineers_300` | Fungineers 300 |
+| `fungineers_301` | Fungineers 301 |
+| `fungineers_400` | Fungineers 400 |
+
+---
+
+## Repas
+
+| Target | Board |
+|--------|-------|
+| `RSR_DD_V1` | Repas RSR DD V1 |
+| `RSR_DD_V2` | Repas RSR DD V2 |
+
+---
+
+## Tronic
+
+| Target | Board |
+|--------|-------|
+| `TRONIC_250R` | Tronic 250R |
+| `x12_pro24` | Tronic X12 Pro 24S |
+| `x12_pro30` | Tronic X12 Pro 30S |
+
+---
+
+## ENNOID
+
+| Target | Board |
+|--------|-------|
+| `ENNOID_MK8` | ENNOID MK8 |
+
+---
+
+## Luna Cycle
+
+| Target | Board |
+|--------|-------|
+| `luna_bbshd` | Luna BBSHD |
+| `luna_m600` | Luna M600 |
+
+---
+
+## ITR
+
+| Target | Board |
+|--------|-------|
+| `itr_x1` | ITR X1 |
+
+---
+
+## IPM
+
+| Target | Board |
+|--------|-------|
+| `ipm_ka160` | IPM KA160 |
+
+---
+
+## Other community boards
+
+The `other/` directory contains additional community-contributed targets:
+
+| Target | Board |
+|--------|-------|
+| `axiom` | Axiom (with FPGA) |
+| `gesc` | GESC |
+| `mbot` | mBot |
+| `r2` | R2 |
+| `raiden7` | Raiden 7 |
+| `spesc` | SPESC |
+| `unity` | Unity |
+| `warrior6` | Warrior 6 |
+| `vesc4` | VESC 4 |
+
+---
+
+## Adding a new target
+
+If your hardware is not listed, the `hwconf/example/` directory contains a template you can use as a starting point. Create a `hw_<yourboard>.h` and `hw_<yourboard>.c` following the existing pattern — the build system will pick it up automatically on the next `make` run.
+
+<Note>
+  Some targets expose both a standard variant and a `_no_limits` variant (for example `100_250` and `100_250_no_limits`). The `_no_limits` build disables hardware protection thresholds and should only be used by experienced developers who understand the risks.
+</Note>

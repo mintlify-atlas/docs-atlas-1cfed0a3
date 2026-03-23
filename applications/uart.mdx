@@ -1,0 +1,109 @@
+---
+title: "UART application"
+description: "Control the VESC over serial UART using the VESC communication protocol."
+keywords: ["vesc", "uart", "serial", "protocol", "external controller", "baudrate"]
+---
+
+The UART application enables an external microcontroller or computer to control and monitor the VESC over a serial UART connection using the VESC communication protocol. This is the default application (`APP_UART`) so the UART port remains available for firmware updates immediately after flashing.
+
+## Port assignments
+
+The firmware supports up to three UART ports, selected by the `UART_PORT` enum:
+
+```c
+typedef enum {
+    UART_PORT_COMM_HEADER = 0,  // 7/8-pin COMM connector (default)
+    UART_PORT_BUILTIN,          // Built-in BLE module UART
+    UART_PORT_EXTRA_HEADER      // Third hardware UART (if present)
+} UART_PORT;
+```
+
+`UART_PORT_COMM_HEADER` (index 0) is the standard external-access port and the one to use when connecting a Raspberry Pi, Arduino, or other host controller.
+
+## Baud rate
+
+The default baud rate is **115200 bps**, defined in `appconf_default.h`:
+
+```c
+#define APPCONF_UART_BAUDRATE    115200
+```
+
+You can change this in VESC Tool under **App Settings → UART** or call `app_uartcomm_configure` at runtime:
+
+```c
+void app_uartcomm_configure(
+    uint32_t baudrate,
+    bool permanent_enabled,
+    UART_PORT port_number
+);
+```
+
+Setting `permanent_enabled` to `true` keeps the UART port active even when another application is selected.
+
+<Note>
+The `APPCONF_PERMANENT_UART_ENABLED` default is `true`, which means UART communication with VESC Tool remains available regardless of which application is active.
+</Note>
+
+## Communication protocol
+
+The VESC UART protocol uses length-prefixed packets with a CRC16 checksum. Each packet has the structure:
+
+| Field | Size | Description |
+|---|---|---|
+| Start byte | 1–2 bytes | `0x02` for short packets (≤255 bytes), `0x03` for long. |
+| Length | 1–2 bytes | Payload length. |
+| Payload | N bytes | Command byte followed by command-specific data. |
+| CRC16 | 2 bytes | CRC over the payload. |
+| Stop byte | 1 byte | `0x03`. |
+
+The packet framing is handled by the `packet` module. The application thread calls `commands_process_packet` for each complete received packet.
+
+## Serial configuration
+
+From `app_uartcomm.c`, the UART is configured with standard 8N1 framing and LIN break detection:
+
+```c
+SerialConfig uart_cfg = {
+    BAUDRATE,         // 115200 by default
+    0,
+    USART_CR2_LINEN,  // LIN mode / break detection
+    0
+};
+```
+
+## Runtime API
+
+```c
+void app_uartcomm_initialize(void);
+void app_uartcomm_start(UART_PORT port_number);
+void app_uartcomm_stop(UART_PORT port_number);
+void app_uartcomm_send_packet(
+    unsigned char *data,
+    unsigned int len,
+    UART_PORT port_number
+);
+```
+
+## Combining with other applications
+
+If you need analog or PPM input _and_ UART telemetry simultaneously, use the combined modes:
+
+- `APP_PPM_UART` — PPM input with UART active.
+- `APP_ADC_UART` — ADC input with UART active.
+
+In these modes the UART port handles communication with VESC Tool while the physical input signal drives the motor.
+
+## Wiring
+
+<Warning>
+The VESC UART pins operate at **3.3 V logic**. Do not connect a 5 V UART directly without a level shifter, as this will damage the hardware.
+</Warning>
+
+Connect your host controller to the COMM header:
+
+| COMM pin | Signal |
+|---|---|
+| TX | VESC transmit → host RX |
+| RX | VESC receive ← host TX |
+| GND | Common ground |
+| 5V / 3.3V | Optional power supply |

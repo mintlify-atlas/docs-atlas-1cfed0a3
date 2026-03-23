@@ -1,0 +1,258 @@
+---
+title: "Hardware configuration overview"
+description: "How VESC firmware selects and loads hardware configuration files, and which boards are supported by manufacturer."
+keywords: ["hardware", "hwconf", "HW_SOURCE", "HW_HEADER", "supported boards", "build target"]
+---
+
+Every VESC firmware build is tied to a specific hardware target. The hardware configuration system uses two preprocessor macros — `HW_SOURCE` and `HW_HEADER` — to inject the correct pin assignments, peripheral configuration, and electrical limits for a given board at compile time.
+
+## How hardware config files work
+
+The build system passes `HW_SOURCE` and `HW_HEADER` as compiler `-D` defines. `conf_general.h` enforces that both are set before any other headers are included:
+
+```c
+// conf_general.h
+#if !defined(HW_SOURCE) && !defined(HW_SOURCE_ALT)
+#error "No hardware source file set"
+#endif
+
+#ifndef HW_HEADER
+#error "No hardware header file set"
+#endif
+```
+
+`hw.h` then includes the board header through the macro:
+
+```c
+// hwconf/hw.h
+#include HW_HEADER
+```
+
+This means `HW_HEADER` must expand to a quoted string containing the path to a `.h` file, for example `"hwconf/trampa/vesc6/hw_vesc6.h"`. The `HW_SOURCE` macro works the same way for the corresponding `.c` file.
+
+After including the board header, `hw.h` conditionally pulls in the appropriate gate driver header based on which driver the board declares:
+
+```c
+#ifdef HW_HAS_DRV8301
+#include "drv8301.h"
+#endif
+#ifdef HW_HAS_DRV8305
+#include "drv8305.h"
+#endif
+#ifdef HW_HAS_DRV8316
+#include "drv8316.h"
+#endif
+#ifdef HW_HAS_DRV8320S
+#include "drv8320s.h"
+#endif
+#ifdef HW_HAS_DRV8323S
+#include "drv8323s.h"
+#endif
+```
+
+The board header defines `HW_NAME`, which is required. If it is missing, the build fails immediately:
+
+```c
+#ifndef HW_NAME
+#error "No hardware name set"
+#endif
+```
+
+`hw.h` also provides safe defaults for any optional macros a board does not define — for example gate control, phase filters, temperature sensors, and current measurement. A board only needs to override the macros that differ from the defaults.
+
+## Hardware types
+
+Every board belongs to one of three hardware types defined in `datatypes.h`:
+
+```c
+typedef enum {
+    HW_TYPE_VESC = 0,
+    HW_TYPE_VESC_BMS,
+    HW_TYPE_CUSTOM_MODULE
+} HW_TYPE;
+```
+
+Most motor controller boards use `HW_TYPE_VESC`. BMS boards that run VESC firmware use `HW_TYPE_VESC_BMS`. Custom peripheral modules use `HW_TYPE_CUSTOM_MODULE`.
+
+## Supported boards by manufacturer
+
+All hardware configuration files live under `hwconf/`. Each manufacturer has its own subdirectory.
+
+<AccordionGroup>
+  <Accordion title="Trampa">
+    The primary VESC hardware designer. Configurations are in `hwconf/trampa/`.
+
+    | Target | Directory |
+    |---|---|
+    | VESC 6 | `trampa/vesc6/` |
+    | VESC 6 GP | `trampa/vesc_gp/` |
+    | VESC EDU | `trampa/vesc_edu/` |
+    | 60/75 | `trampa/60_75/` |
+    | 60 Alva | `trampa/60_alva/` |
+    | 75/300 | `trampa/75_300/` |
+    | 75/300 MKIV | `trampa/75_300_MKIV/` |
+    | 100/250 | `trampa/100_250/` |
+    | 100/250 MKIII | `trampa/100_250_MKIII/` |
+    | 100/500 | `trampa/100_500/` |
+    | 140/300 | `trampa/140_300/` |
+    | HD | `trampa/hd/` |
+    | RB | `trampa/rb/` |
+    | Sparkf | `trampa/sparkf/` |
+    | STR500 | `trampa/str500/` |
+  </Accordion>
+
+  <Accordion title="VESC">
+    Official VESC boards. Configurations are in `hwconf/vesc/`.
+
+    | Target | Directory |
+    |---|---|
+    | Basic | `vesc/basic/` |
+    | Classic | `vesc/classic/` |
+    | Classic P | `vesc/classicp/` |
+    | Duet | `vesc/duet/` |
+    | Duet XS | `vesc/duet_xs/` |
+    | Maxim | `vesc/maxim/` |
+    | Maxim P | `vesc/maximp/` |
+    | Minim | `vesc/minim/` |
+    | Pronto | `vesc/pronto/` |
+    | STR365 | `vesc/str365/` |
+  </Accordion>
+
+  <Accordion title="FlipSky">
+    Configurations are in `hwconf/flipsky/`.
+
+    | Target |
+    |---|
+    | `hw_75_100` |
+    | `hw_75_100_V2` |
+    | `hw_fsesc_75_200_alu` |
+    | `hw_fsesc_75_300` |
+    | No-limits variants for each board |
+  </Accordion>
+
+  <Accordion title="FlipSky Official">
+    Additional official FlipSky boards in `hwconf/flipsky_official/`.
+  </Accordion>
+
+  <Accordion title="MakerX">
+    Configurations are in `hwconf/makerx/`.
+
+    | Target |
+    |---|
+    | `hw_go_foc_dv6_pro` |
+    | `hw_go_foc_g300` |
+    | `hw_go_foc_hi200` |
+    | `hw_go_foc_hv200` |
+    | `hw_go_foc_m100` |
+  </Accordion>
+
+  <Accordion title="Makerbase">
+    Configurations are in `hwconf/makerbase/`.
+
+    | Target | Directory |
+    |---|---|
+    | 75/100 | `makerbase/75_100/` |
+    | 75/100 V2 | `makerbase/75_100_V2/` |
+    | 75/200 V2 | `makerbase/75_200_V2/` |
+    | 100/300 HP | `makerbase/100_300_HP/` |
+    | 84/100 HP | `makerbase/84_100_HP/` |
+    | 84/200 HP | `makerbase/84_200_HP/` |
+  </Accordion>
+
+  <Accordion title="StormCore">
+    Configurations are in `hwconf/stormcore/`.
+
+    | Target | Directory |
+    |---|---|
+    | 60D | `stormcore/60D/` |
+    | 100D | `stormcore/100D/` |
+    | 100S | `stormcore/100S/` |
+  </Accordion>
+
+  <Accordion title="Ubox">
+    Configurations are in `hwconf/Ubox/`.
+  </Accordion>
+
+  <Accordion title="Luna">
+    E-bike motor controllers. Configurations are in `hwconf/luna/`.
+
+    | Target | Directory |
+    |---|---|
+    | BBSHD | `luna/bbshd/` |
+    | M600 | `luna/m600/` |
+  </Accordion>
+
+  <Accordion title="ENNOID">
+    Configurations are in `hwconf/ENNOID/`.
+
+    | Target | Directory |
+    |---|---|
+    | MK8 | `ENNOID/MK8/` |
+  </Accordion>
+
+  <Accordion title="Other boards">
+    Additional boards in `hwconf/other/`:
+
+    | Target |
+    |---|
+    | `hw_axiom` |
+    | `hw_gesc` |
+    | `hw_mbot` |
+    | `hw_r2` |
+    | `hw_raiden7` |
+    | `hw_spesc` |
+    | `hw_unity` |
+    | `hw_warrior6` |
+    | VESC 4 (`other/vesc4/`) |
+
+    Community boards from `hwconf/fungineers/`, `hwconf/ipm/`, `hwconf/itr/`, `hwconf/JetFleet/`, `hwconf/repas/`, `hwconf/shaman/`, `hwconf/teamtriforceuk/`, and `hwconf/tronic/` are also included.
+  </Accordion>
+</AccordionGroup>
+
+## Selecting hardware at build time
+
+The top-level `Makefile` automatically discovers all `hw_*.h` files under `hwconf/` and generates a build target for each one. To see all available targets, run:
+
+```bash
+make
+```
+
+The output lists every board name under `[Firmware]`.
+
+To build for a specific board, use the `fw_<board>` pattern:
+
+```bash
+# Build for the VESC 100/250
+make fw_100_250
+
+# Build for the Trampa 75/300
+make fw_75_300
+
+# Build for MakerX GO-FOC HV200
+make fw_go_foc_hv200
+```
+
+You can also pass `PROJECT` directly:
+
+```bash
+make PROJECT=100_250 fw
+```
+
+Under the hood, the Makefile resolves the board name to its header and source files and passes them to the compiler:
+
+```makefile
+$(1)_BUILD_MACROS = \
+  -DHW_SOURCE=\"$$($(1)_HW_SRC_FILE)\" \
+  -DHW_HEADER=\"$$($(1)_HW_HEADER)\" \
+  ...
+```
+
+Flash a built image directly to the target over SWD:
+
+```bash
+make fw_100_250_flash
+```
+
+<Note>
+  Some boards have a `_no_limits` variant (for example `hw_75_100_no_limits.h`). These disable the hardware safety limits on configuration parameters. They are intended for advanced use cases such as testing. The `DISABLE_HW_LIMITS` define sets `FW_NAME` to `"no_hw_limits"` to make it visible in VESC Tool.
+</Note>

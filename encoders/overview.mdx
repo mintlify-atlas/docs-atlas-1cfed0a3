@@ -1,0 +1,109 @@
+---
+title: "Encoders overview"
+description: "How position sensors integrate with FOC motor control in VESC firmware."
+keywords: ["encoder", "FOC", "sensor mode", "sensorless", "hall", "HFI"]
+---
+
+Field-Oriented Control (FOC) requires accurate rotor position information to apply current in the optimal direction. The VESC firmware supports several strategies for obtaining this position, ranging from pure estimation (sensorless) to dedicated hardware encoders.
+
+## Why position sensing matters for FOC
+
+FOC decomposes stator current into a torque-producing component (Iq) and a flux-producing component (Id). Accurate alignment of these components with the rotor flux requires knowing the electrical angle of the rotor at all times.
+
+- **Low-speed performance**: Back-EMF observers struggle at near-zero speed. A physical sensor eliminates this limitation.
+- **Startup torque**: Sensored modes can produce full torque from standstill without the alignment pulses needed in sensorless operation.
+- **Position control**: Applications such as servo drives require absolute or incremental position feedback.
+
+## Sensor modes (`mc_foc_sensor_mode`)
+
+The active sensor strategy is selected through the `FOC_SENSOR_MODE` parameter, defined in `datatypes.h`:
+
+```c
+typedef enum {
+    FOC_SENSOR_MODE_SENSORLESS = 0,
+    FOC_SENSOR_MODE_ENCODER,
+    FOC_SENSOR_MODE_HALL,
+    FOC_SENSOR_MODE_HFI,
+    FOC_SENSOR_MODE_HFI_START,
+    FOC_SENSOR_MODE_HFI_V2,
+    FOC_SENSOR_MODE_HFI_V3,
+    FOC_SENSOR_MODE_HFI_V4,
+    FOC_SENSOR_MODE_HFI_V5,
+    FOC_SENSOR_MODE_ENCODER_AB
+} mc_foc_sensor_mode;
+```
+
+<AccordionGroup>
+  <Accordion title="FOC_SENSOR_MODE_SENSORLESS">
+    Uses a back-EMF observer (Ortega or other configured observer) to estimate rotor position. No external hardware required. Performance degrades at very low speeds.
+  </Accordion>
+
+  <Accordion title="FOC_SENSOR_MODE_ENCODER">
+    Uses a connected absolute or incremental encoder (ABI, AS504x, AS5x47U, BiSS-C, MA782, MT6816, SinCos, TLE5012, TS5700N8501). Requires an offset calibration run to align the encoder zero with the motor's electrical zero.
+  </Accordion>
+
+  <Accordion title="FOC_SENSOR_MODE_ENCODER_AB">
+    Variant of encoder mode that uses only the A and B quadrature channels without requiring an index pulse. Useful when the index line is unavailable.
+  </Accordion>
+
+  <Accordion title="FOC_SENSOR_MODE_HALL">
+    Uses three digital Hall-effect sensors embedded in the motor. Provides 6-step commutation-quality position (60-degree resolution per electrical cycle). Suitable for motors with built-in Hall sensors.
+  </Accordion>
+
+  <Accordion title="FOC_SENSOR_MODE_HFI">
+    High-Frequency Injection. Injects a small HF voltage signal and measures the resulting current anisotropy to estimate rotor position without an external sensor. Effective at zero and low speed on motors with saliency (e.g., IPM motors).
+  </Accordion>
+
+  <Accordion title="FOC_SENSOR_MODE_HFI_START">
+    Combines HFI at standstill and low speed with a sensorless back-EMF observer at higher speeds. Provides smooth sensorless operation across the full speed range.
+  </Accordion>
+
+  <Accordion title="HFI variants (V2–V5)">
+    Successive revisions of the HFI algorithm with improved noise rejection, startup behaviour, and compatibility with different motor geometries. Select the version that works best with your motor through empirical testing.
+  </Accordion>
+</AccordionGroup>
+
+## Configuring the encoder in VESC Tool
+
+<Steps>
+  <Step title="Connect your VESC">
+    Open VESC Tool and connect to the controller over USB or Bluetooth.
+  </Step>
+
+  <Step title="Open Motor Configuration">
+    Navigate to **Motor Configuration** → **FOC** → **General**.
+  </Step>
+
+  <Step title="Select a sensor mode">
+    Set the **Sensor Mode** drop-down to the mode matching your hardware (for example, **Encoder** for SPI/ABI encoders, **Hall Sensors** for Hall-effect sensors).
+  </Step>
+
+  <Step title="Run the detection wizard">
+    For encoder modes, click **Detect Encoder** (or the equivalent wizard button). The firmware will spin the motor slowly to measure the encoder offset angle and store it in the configuration.
+  </Step>
+
+  <Step title="Write configuration">
+    Click **Write Motor Configuration** to persist the settings to flash.
+  </Step>
+</Steps>
+
+<Note>
+  The encoder offset must be re-detected any time you mechanically reposition the encoder relative to the motor shaft.
+</Note>
+
+## Encoder API
+
+The encoder subsystem exposes a unified API regardless of the underlying sensor type:
+
+```c
+// encoder.h
+bool  encoder_init(volatile mc_configuration *conf);
+void  encoder_deinit(void);
+float encoder_read_deg(void);             // Electrical angle, 0–360°
+float encoder_read_deg_multiturn(void);   // Cumulative angle (absolute encoders)
+bool  encoder_index_found(void);          // ABI index pulse detected
+float encoder_get_error_rate(void);       // Communication error rate (0.0–1.0)
+void  encoder_reset_errors(void);
+```
+
+The active encoder type is reported by `encoder_is_configured()`, which returns an `encoder_type_t` value from `encoder_datatype.h`.

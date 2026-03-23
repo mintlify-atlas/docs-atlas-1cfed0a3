@@ -1,80 +1,198 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart'
+description: 'Clone, build, and flash VESC firmware to your controller in a few steps.'
+keywords: ['VESC', 'build', 'flash', 'quickstart', 'ARM SDK', 'STLink', 'VESC Tool']
 ---
 
-## Get started in three steps
+# Quickstart
 
-Get your documentation site running locally and make your first customization.
+This guide walks you through building VESC firmware from source and uploading it to your controller. You will need a supported hardware target — see [Supported hardware](/supported-hardware) for the full list.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Tabs>
+  <Tab title="Ubuntu / Linux">
+    Install the required system packages:
 
-### Step 2: Deploy your changes
+    ```bash
+    sudo apt install git build-essential libgl-dev libxcb-xinerama0 wget git-gui
+    ```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    Optionally, add udev rules so you can use an STLink v2 programmer without `sudo`:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    wget vedder.se/Temp/49-stlinkv2.rules
+    sudo mv 49-stlinkv2.rules /etc/udev/rules.d/
+    sudo udevadm trigger
+    ```
+  </Tab>
+  <Tab title="macOS">
+    Install the required tools. If you plan to flash via SWD you will also need OpenOCD or stlink:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    brew install stlink
+    brew install openocd
+    ```
 
-### Step 3: Go live
+    The ARM SDK installer (`make arm_sdk_install`) handles the compiler download automatically.
+  </Tab>
+  <Tab title="Windows">
+    1. Install [Chocolatey](https://chocolatey.org/install).
+    2. Install Git from [git-scm.com/download/win](https://git-scm.com/download/win). When prompted, enable the option to add Git to your PATH.
+    3. Open **Windows PowerShell** (do not run as Administrator — that will break the build).
+    4. Install `make`:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```powershell
+    choco install make
+    ```
+  </Tab>
+</Tabs>
 
-## Next steps
+## Build the firmware
 
-Now that you have your docs running, explore these key features:
+<Steps>
+  <Step title="Clone the repository">
+    <Tabs>
+      <Tab title="Linux / macOS">
+        Open a terminal and run:
 
-<CardGroup cols={2}>
+        ```bash
+        git clone http://github.com/vedderb/bldc.git
+        cd bldc
+        ```
+      </Tab>
+      <Tab title="Windows">
+        Open PowerShell and run:
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+        ```powershell
+        git clone http://github.com/vedderb/bldc
+        cd bldc
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+  <Step title="Check out the master branch">
+    ```bash
+    git checkout origin/master
+    ```
+  </Step>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+  <Step title="Install the ARM GCC toolchain">
+    The Makefile downloads and installs the GNU ARM GCC toolchain into the `tools/` directory:
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    ```bash
+    make arm_sdk_install
+    ```
 
-</CardGroup>
+    You only need to do this once.
+  </Step>
+
+  <Step title="Find your target board name">
+    Run `make` without arguments to see the full list of supported boards:
+
+    ```bash
+    make
+    ```
+
+    The output lists every available target under `[Firmware]`. Pick the one that matches your hardware. For example, a Trampa VESC 100/250 uses the target name `100_250`.
+
+    <Tip>
+      Target names map directly to the `hw_*.h` files in `hwconf/`. See [Supported hardware](/supported-hardware) for a grouped listing.
+    </Tip>
+  </Step>
+
+  <Step title="Build firmware for your target">
+    Pass your target name to `make`. Replace `100_250` with your actual target:
+
+    ```bash
+    make 100_250
+    ```
+
+    The compiled firmware is placed in `build/100_250/`. You will find both an ELF file and a `.bin` file there.
+  </Step>
+</Steps>
+
+## Flash the firmware
+
+There are two ways to get the firmware onto your controller. Method 1 (SWD) is required for a fresh controller or a bricked device. Method 2 (VESC Tool USB) is more convenient for routine updates.
+
+### Method 1 — Flash via STLink SWD debugger
+
+<Steps>
+  <Step title="Flash the bootloader">
+    A SWD flash always requires the bootloader to be present first. Clone and build it from [github.com/vedderb/bldc-bootloader](https://github.com/vedderb/bldc-bootloader), then flash it via SWD before proceeding.
+  </Step>
+
+  <Step title="Flash the firmware">
+    Use the `_flash` make target for your board. This invokes OpenOCD over SWD/JTAG:
+
+    ```bash
+    make 100_250_flash
+    ```
+
+    Substitute `100_250` with your target name.
+  </Step>
+</Steps>
+
+### Method 2 — Upload via VESC Tool over USB
+
+<Warning>
+  Do not disconnect power or USB from your VESC during the upload process. Interrupting the upload can brick the controller. Only disconnect 10 seconds after the "FW Upload DONE" message appears and the progress bar completes.
+</Warning>
+
+<Steps>
+  <Step title="Build the firmware">
+    Follow the build steps above. You need the `.bin` file from the `build/<target>/` directory, for example `build/100_250/100_250.bin`.
+  </Step>
+
+  <Step title="Connect to your VESC in VESC Tool">
+    Open VESC Tool and connect to your controller over USB.
+  </Step>
+
+  <Step title="Navigate to the Firmware tab">
+    Select the **Firmware** tab from the left-side menu.
+  </Step>
+
+  <Step title="Select the custom firmware file">
+    Click the **Custom file** tab, then click the folder icon and select the `.bin` file you built.
+  </Step>
+
+  <Step title="Upload the firmware">
+    Click the upload button (downward arrow) in the bottom-right corner. The progress bar will advance as the firmware uploads.
+
+    It is normal for the VESC to disconnect during the upload — do not panic.
+  </Step>
+
+  <Step title="Wait before disconnecting">
+    Wait **10 seconds** after the progress bar completes before removing USB or power. The VESC will disconnect itself once the new firmware is fully written.
+  </Step>
+</Steps>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  If your VESC becomes unresponsive after a failed upload, you will need an STLink SWD debugger to recover it. See [Method 1](#method-1--flash-via-stlink-swd-debugger) above.
 </Note>
+
+## Optional: Qt Creator IDE
+
+If you prefer a graphical IDE, the repository includes a Qt Creator project:
+
+<Steps>
+  <Step title="Install Python dependencies">
+    ```bash
+    pip install aqtinstall
+    ```
+  </Step>
+
+  <Step title="Install Qt">
+    ```bash
+    make qt_install
+    ```
+  </Step>
+
+  <Step title="Open the project in Qt Creator">
+    Launch Qt Creator from `tools/Qt/Tools/QtCreator/bin/qtcreator`, then open `Project/Qt Creator/vesc.pro`.
+
+    The active hardware target is shown at the bottom-left of the IDE panel and can be changed to any supported board.
+  </Step>
+</Steps>

@@ -1,0 +1,100 @@
+---
+title: 'Flashing'
+description: 'Upload compiled firmware to your VESC using a SWD debugger or VESC Tool over USB.'
+---
+
+There are two methods to flash firmware onto a VESC: using a SWD hardware debugger, or uploading via VESC Tool over USB.
+
+<CardGroup cols={2}>
+  <Card title="Method 1: SWD debugger" icon="cpu">
+    Requires STLink or compatible JTAG/SWD probe. Needed for first-time flashing and recovering a bricked device.
+  </Card>
+  <Card title="Method 2: VESC Tool USB" icon="usb">
+    Upload a `.bin` file through the VESC Tool application. No extra hardware required once a bootloader is present.
+  </Card>
+</CardGroup>
+
+## Method 1: SWD debugger
+
+This method uses OpenOCD and a SWD/JTAG probe (such as an STLink v2) to write firmware directly to the device.
+
+<Steps>
+  <Step title="Flash the bootloader">
+    Before flashing application firmware for the first time, you must flash the bootloader. Clone and build the [bldc-bootloader](https://github.com/vedderb/bldc-bootloader) project and follow its instructions.
+  </Step>
+  <Step title="Build your target firmware">
+    Build the firmware for your board:
+
+    ```bash
+    make 100_250
+    ```
+  </Step>
+  <Step title="Flash the firmware">
+    Use the `_flash` make target for your board. For the VESC 100/250:
+
+    ```bash
+    make 100_250_flash
+    ```
+
+    This invokes OpenOCD to write the compiled `.elf` to the device over SWD.
+  </Step>
+</Steps>
+
+<Note>
+  On Linux, you can use the STLink v2 programmer without root access by installing the udev rules. See [Prerequisites](/building/prerequisites) for the commands.
+</Note>
+
+## Method 2: VESC Tool USB upload
+
+This method uploads a compiled `.bin` file through the VESC Tool application over USB. A working bootloader must already be present on the device.
+
+<Warning>
+  Do not disconnect power or USB from the VESC during the upload process. Doing so risks bricking the device.
+</Warning>
+
+<Steps>
+  <Step title="Build the firmware">
+    Build the `.bin` file for your board:
+
+    ```bash
+    make 100_250
+    ```
+
+    The output file is located at `build/100_250/100_250.bin`.
+  </Step>
+  <Step title="Connect to the VESC in VESC Tool">
+    Open VESC Tool and connect to your VESC over USB.
+  </Step>
+  <Step title="Navigate to the Firmware tab">
+    Select the **Firmware** tab from the left side menu.
+  </Step>
+  <Step title="Select your firmware file">
+    Click the **Custom file** tab, then click the folder icon to browse for and select your `.bin` file (e.g. `build/100_250/100_250.bin`).
+  </Step>
+  <Step title="Start the upload">
+    Press the upload firmware button (downward arrow) in the bottom right to begin the upload.
+
+    It is normal for VESC Tool to show a disconnect during the upload process.
+  </Step>
+  <Step title="Wait for completion">
+    Wait for the loading bar to complete, then **wait an additional 10 seconds** before disconnecting anything.
+
+    <Warning>
+      Disconnecting power or USB before the 10-second wait completes after "FW Upload DONE" risks bricking your VESC.
+    </Warning>
+  </Step>
+  <Step title="Reconnect">
+    The VESC will disconnect itself once the new firmware is running. You can then reconnect in VESC Tool.
+  </Step>
+</Steps>
+
+## If your VESC is bricked
+
+A bricked VESC cannot accept USB firmware uploads because the bootloader is no longer functional. To recover:
+
+1. Use a SWD debugger (Method 1 above) to re-flash valid firmware directly.
+2. You must flash the [bootloader](https://github.com/vedderb/bldc-bootloader) first, then the application firmware.
+
+<Note>
+  A SWD debugger is the only way to recover a bricked VESC. Keep one available if you are frequently updating firmware.
+</Note>

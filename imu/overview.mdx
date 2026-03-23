@@ -1,0 +1,180 @@
+---
+title: "IMU overview"
+description: "Inertial measurement unit support in VESC firmware, including supported chips, AHRS filter options, and configuration parameters."
+keywords: ["IMU", "BMI160", "ICM20948", "LSM6DS3", "MPU9150", "AHRS", "Madgwick", "Mahony", "balance controller"]
+---
+
+The VESC firmware includes a full inertial measurement unit (IMU) subsystem that reads accelerometer and gyroscope data, fuses the measurements into an attitude estimate, and exposes roll, pitch, and yaw angles to applications such as balance controllers and ride-assist systems.
+
+## Supported IMU chips
+
+The active chip is selected by the `IMU_TYPE` enum in `datatypes.h`:
+
+```c
+typedef enum {
+    IMU_TYPE_OFF = 0,
+    IMU_TYPE_INTERNAL,
+    IMU_TYPE_EXTERNAL_MPU9X50,
+    IMU_TYPE_EXTERNAL_ICM20948,
+    IMU_TYPE_EXTERNAL_BMI160,
+    IMU_TYPE_EXTERNAL_LSM6DS3
+} IMU_TYPE;
+```
+
+<Columns cols={2}>
+  <Card title="BMI160" icon="microchip">
+    Bosch 6-axis IMU (accelerometer + gyroscope). Supported over both **I²C** and **SPI**. Widely used on VESC Express and custom hardware.
+  </Card>
+
+  <Card title="ICM20948" icon="microchip">
+    TDK InvenSense 9-axis IMU (accelerometer + gyroscope + magnetometer). Supported over **I²C**. Includes magnetometer support for heading estimation.
+  </Card>
+
+  <Card title="LSM6DS3" icon="microchip">
+    STMicroelectronics 6-axis IMU (accelerometer + gyroscope). Supported over **I²C**.
+  </Card>
+
+  <Card title="MPU9150 / MPU9250" icon="microchip">
+    TDK InvenSense 9-axis IMU family. Supported over **I²C** via the `imu_init_mpu9x50` path.
+  </Card>
+</Columns>
+
+The `IMU_TYPE_INTERNAL` option uses an IMU soldered directly onto the VESC controller PCB, wired to fixed I²C or SPI pins defined in the hardware configuration.
+
+## What IMU data is used for
+
+The firmware provides processed IMU output to application-layer code through the following functions:
+
+```c
+// imu.h
+float imu_get_roll(void);
+float imu_get_pitch(void);
+float imu_get_yaw(void);
+void  imu_get_rpy(float *rpy);             // [roll, pitch, yaw] in degrees
+void  imu_get_accel(float *accel);         // [x, y, z] in m/s²
+void  imu_get_gyro(float *gyro);           // [x, y, z] in rad/s
+void  imu_get_mag(float *mag);             // [x, y, z] (magnetometer, if present)
+void  imu_get_accel_derotated(float *accel); // Gravity-frame acceleration
+void  imu_get_gyro_derotated(float *gyro);   // Body-frame corrected gyro
+void  imu_get_quaternions(float *q);       // [w, x, y, z] unit quaternion
+```
+
+### Primary use cases
+
+- **Self-balancing (balance board / unicycle)**: Pitch angle and angular rate are the primary feedback signals for the PID or LQR balancing controller.
+- **Ride-assist and lean detection**: Roll angle is used to detect when the rider leans into a turn.
+- **Motor orientation correction**: `imu_derotate()` transforms sensor-frame vectors to the motor-frame, compensating for the physical mounting angle of the controller.
+- **Custom applications via LispBM**: Roll, pitch, yaw, and raw sensor values are exposed to LispBM scripts for user-defined control logic.
+
+## AHRS — attitude and heading reference system
+
+Raw gyroscope and accelerometer data is fused into a quaternion-based attitude estimate by the AHRS module (`imu/ahrs.c`). The firmware implements three filter variants, selectable through the `AHRS_MODE` enum:
+
+```c
+typedef enum {
+    AHRS_MODE_MADGWICK = 0,
+    AHRS_MODE_MAHONY,
+    AHRS_MODE_MADGWICK_FUSION
+} AHRS_MODE;
+```
+
+<AccordionGroup>
+  <Accordion title="Madgwick filter (AHRS_MODE_MADGWICK)">
+    Sebastian Madgwick's gradient-descent algorithm. Uses only accelerometer and gyroscope data (6-DOF). Controlled by a single `beta` gain parameter that trades dynamic response for noise rejection.
+
+    ```c
+    void ahrs_update_madgwick_imu(
+        const float *gyroXYZ,
+        const float *accelXYZ,
+        float dt,
+        ATTITUDE_INFO *att
+    );
+    ```
+  </Accordion>
+
+  <Accordion title="Mahony filter (AHRS_MODE_MAHONY)">
+    Madgwick's implementation of Mahony's complementary filter. Also 6-DOF (gyro + accel). Controlled by proportional gain `kp` and integral gain `ki`. The integral term compensates for gyroscope bias drift.
+
+    ```c
+    void ahrs_update_mahony_imu(
+        const float *gyroXYZ,
+        const float *accelXYZ,
+        float dt,
+        ATTITUDE_INFO *att
+    );
+    ```
+  </Accordion>
+
+  <Accordion title="Madgwick fusion (AHRS_MODE_MADGWICK_FUSION)">
+    Extended Madgwick filter that incorporates magnetometer data when available (e.g., ICM20948, MPU9150). Provides absolute heading (yaw) in addition to roll and pitch.
+  </Accordion>
+</AccordionGroup>
+
+## Configuration parameters (`imu_config`)
+
+The full IMU configuration is stored in the `imu_config` struct:
+
+```c
+typedef struct {
+    IMU_TYPE  type;                    // Chip selection
+    AHRS_MODE mode;                    // Filter algorithm
+    IMU_FILTER filter;                 // Hardware low-pass: LOW / MEDIUM / HIGH
+    float accel_lowpass_filter_x;      // Software low-pass cutoff for accel X
+    float accel_lowpass_filter_y;
+    float accel_lowpass_filter_z;
+    float gyro_lowpass_filter;         // Software low-pass cutoff for gyro
+    int   sample_rate_hz;              // IMU sampling rate
+    bool  use_magnetometer;            // Enable mag for heading fusion
+    float accel_confidence_decay;      // How quickly accel trust decays under dynamics
+    float mahony_kp;                   // Mahony proportional gain
+    float mahony_ki;                   // Mahony integral gain
+    float madgwick_beta;               // Madgwick beta gain
+    float rot_roll;                    // Mounting offset compensation (degrees)
+    float rot_pitch;
+    float rot_yaw;
+    float accel_offsets[3];            // Factory / calibration offsets
+    float gyro_offsets[3];
+} imu_config;
+```
+
+### Tuning guidance
+
+| Parameter | Effect |
+|---|---|
+| `madgwick_beta` | Higher values track accelerometer more aggressively; lower values are smoother but slower to correct gyro drift. Typical range: 0.01–0.1. |
+| `mahony_kp` | Proportional correction strength. Increase if the attitude drifts or recovers slowly after disturbances. |
+| `mahony_ki` | Integral correction for gyro bias. Set to a small value (e.g., 0.005) to prevent windup. |
+| `accel_confidence_decay` | Reduce accelerometer influence during high-G manoeuvres. Higher value = faster decay. |
+| `rot_roll/pitch/yaw` | Set to the physical mounting angles of the controller so that reported angles align with the vehicle frame. |
+
+## Calibration
+
+The IMU module supports runtime calibration:
+
+```c
+// Compute calibration offsets for the current mounting orientation.
+// yaw is the known heading at the time of calibration.
+void imu_get_calibration(float yaw, float *imu_cal);
+
+// Reset roll and pitch to zero based on current attitude.
+void imu_reset_orientation(void);
+
+// Force-set yaw to a specific value (degrees).
+void imu_set_yaw(float yaw_deg);
+```
+
+<Note>
+  Run calibration with the vehicle stationary on a level surface. The accelerometer offsets are stored in `imu_config.accel_offsets` and `gyro_offsets` and written to flash with the rest of the app configuration.
+</Note>
+
+## Custom data callback
+
+For advanced use cases — such as a custom IMU chip or external sensor fusion — you can inject raw sensor data directly into the AHRS pipeline:
+
+```c
+void imu_set_read_callback(
+    void (*func)(float *acc, float *gyro, float *mag, float dt)
+);
+```
+
+When a callback is registered, the firmware skips the hardware chip read and calls your function instead, passing pre-allocated arrays for acceleration (m/s²), angular rate (rad/s), magnetometer (µT), and the time step `dt` in seconds.

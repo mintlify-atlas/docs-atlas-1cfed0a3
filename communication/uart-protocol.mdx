@@ -1,0 +1,216 @@
+---
+title: 'UART protocol'
+description: 'VESC serial packet protocol over UART: frame structure, CRC, and COMM_PACKET_ID command reference for external microcontrollers.'
+keywords: ['UART', 'serial', 'protocol', 'packet', 'CRC', 'COMM_PACKET_ID', 'external microcontroller']
+---
+
+The VESC uses a consistent framed serial protocol over both UART and USB. Understanding the packet format lets you communicate with a VESC from any microcontroller or host with a serial port.
+
+The protocol is implemented in `comm/packet.c` and `comm/packet.h`.
+
+## Packet structure
+
+Every packet is wrapped in a frame that provides length and integrity information.
+
+<Tabs>
+  <Tab title="Short packet (≤ 255 bytes)">
+    | Byte(s) | Field | Value |
+    |---------|-------|-------|
+    | 0 | Start byte | `0x02` |
+    | 1 | Payload length | 1 – 255 |
+    | 2 … (1 + length) | Payload | Command ID + data |
+    | last 2 | CRC16 | Big-endian CRC of payload |
+    | last | Stop byte | `0x03` |
+  </Tab>
+  <Tab title="Long packet (256 – 512 bytes)">
+    | Byte(s) | Field | Value |
+    |---------|-------|-------|
+    | 0 | Start byte | `0x03` |
+    | 1 – 2 | Payload length | Big-endian uint16 |
+    | 3 … (2 + length) | Payload | Command ID + data |
+    | last 2 | CRC16 | Big-endian CRC of payload |
+    | last | Stop byte | `0x03` |
+  </Tab>
+</Tabs>
+
+- The maximum payload length is **512 bytes** (`PACKET_MAX_PL_LEN` in `packet.h`).
+- The first byte of the payload is always the **`COMM_PACKET_ID`** command byte.
+- The CRC is computed over the payload bytes only (not the start byte, length, or stop byte).
+- The stop byte is `0x03` for both short and long frames.
+
+<Note>
+  The start byte distinguishes frame types: `0x02` means a one-byte length field follows; `0x03` means a two-byte length field follows.
+</Note>
+
+## Packet layer API
+
+The `packet.h` API manages framing state for each communication channel:
+
+```c
+// State for one communication channel
+typedef struct {
+    void(*send_func)(unsigned char *data, unsigned int len);
+    void(*process_func)(unsigned char *data, unsigned int len);
+    unsigned int rx_read_ptr;
+    unsigned int rx_write_ptr;
+    int bytes_left;
+    unsigned char rx_buffer[PACKET_BUFFER_LEN]; // PACKET_MAX_PL_LEN + 8
+    unsigned char tx_buffer[PACKET_BUFFER_LEN];
+} PACKET_STATE_t;
+
+// Initialize a channel with send and process callbacks
+void packet_init(
+    void (*send_func)(unsigned char *data, unsigned int len),
+    void (*process_func)(unsigned char *data, unsigned int len),
+    PACKET_STATE_t *state
+);
+
+// Reset framing state (call on reconnect or error)
+void packet_reset(PACKET_STATE_t *state);
+
+// Feed one received byte into the framing state machine
+void packet_process_byte(uint8_t rx_data, PACKET_STATE_t *state);
+
+// Encode and send a payload via the channel's send_func
+void packet_send_packet(unsigned char *data, unsigned int len, PACKET_STATE_t *state);
+```
+
+## Communicating from an external microcontroller
+
+<Steps>
+  <Step title="Connect UART">
+    Connect your microcontroller's TX to the VESC RX pin and RX to the VESC TX pin. Use the baud rate configured in VESC Tool under **App Settings -> UART -> Baud Rate** (default: 115200). Ensure common ground.
+  </Step>
+  <Step title="Build a packet">
+    Construct a payload starting with the `COMM_PACKET_ID` byte followed by any required data bytes for that command. Encode it into a frame (start byte, length, payload, CRC16, stop byte).
+  </Step>
+  <Step title="Send and receive">
+    Transmit the frame over UART. For commands that return data (e.g., `COMM_GET_VALUES`), wait for the VESC to send a response frame and decode it the same way.
+  </Step>
+</Steps>
+
+### Minimal C example: set duty cycle
+
+```c
+#include <stdint.h>
+#include <string.h>
+
+// CRC-16/CCITT-FALSE
+static uint16_t crc16(const uint8_t *buf, uint32_t len) {
+    uint16_t crc = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        crc ^= (uint16_t)buf[i] << 8;
+        for (int j = 0; j < 8; j++) {
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
+        }
+    }
+    return crc;
+}
+
+// Send a framed packet over your UART hardware
+void uart_send_bytes(const uint8_t *data, uint16_t len) {
+    // hardware-specific transmit
+}
+
+#define COMM_SET_DUTY 5
+
+void vesc_set_duty(float duty) {
+    int32_t duty_scaled = (int32_t)(duty * 100000.0f);
+
+    // Payload: command byte + 4 data bytes
+    uint8_t payload[5];
+    payload[0] = COMM_SET_DUTY;
+    payload[1] = (duty_scaled >> 24) & 0xFF;
+    payload[2] = (duty_scaled >> 16) & 0xFF;
+    payload[3] = (duty_scaled >> 8)  & 0xFF;
+    payload[4] =  duty_scaled        & 0xFF;
+
+    uint16_t crc = crc16(payload, sizeof(payload));
+
+    // Short frame: start=0x02, 1-byte length, payload, CRC, stop=0x03
+    uint8_t frame[9];
+    frame[0] = 0x02;
+    frame[1] = sizeof(payload);
+    memcpy(&frame[2], payload, sizeof(payload));
+    frame[7] = (crc >> 8) & 0xFF;
+    frame[8] =  crc       & 0xFF;
+    // Note: stop byte 0x03 appended after CRC
+    uint8_t stop = 0x03;
+
+    uart_send_bytes(frame, sizeof(frame));
+    uart_send_bytes(&stop, 1);
+}
+```
+
+## COMM_PACKET_ID command reference
+
+The first byte of every payload is a `COMM_PACKET_ID` value, defined in `datatypes.h`.
+
+### Motor control commands
+
+| ID | Name | Direction | Description |
+|----|------|-----------|-------------|
+| 5 | `COMM_SET_DUTY` | Host → VESC | Set duty cycle (int32, scale 100000) |
+| 6 | `COMM_SET_CURRENT` | Host → VESC | Set motor current (int32, scale 1000) |
+| 7 | `COMM_SET_CURRENT_BRAKE` | Host → VESC | Set braking current (int32, scale 1000) |
+| 8 | `COMM_SET_RPM` | Host → VESC | Set RPM (int32, scale 1) |
+| 9 | `COMM_SET_POS` | Host → VESC | Set rotor position in degrees (int32, scale 1000000) |
+| 10 | `COMM_SET_HANDBRAKE` | Host → VESC | Set handbrake current (int32, scale 1000) |
+| 84 | `COMM_SET_CURRENT_REL` | Host → VESC | Set relative current -1.0 to 1.0 (int32, scale 100000) |
+
+### Telemetry commands
+
+| ID | Name | Direction | Description |
+|----|------|-----------|-------------|
+| 4 | `COMM_GET_VALUES` | Host → VESC | Request full motor/system telemetry |
+| 50 | `COMM_GET_VALUES_SELECTIVE` | Host → VESC | Request a bitmask-selected subset of values |
+| 47 | `COMM_GET_VALUES_SETUP` | Host → VESC | Request setup values |
+| 22 | `COMM_ROTOR_POSITION` | VESC → Host | Rotor position (streamed) |
+
+### Configuration commands
+
+| ID | Name | Direction | Description |
+|----|------|-----------|-------------|
+| 13 | `COMM_SET_MCCONF` | Host → VESC | Write motor configuration |
+| 14 | `COMM_GET_MCCONF` | Host → VESC | Read motor configuration |
+| 15 | `COMM_GET_MCCONF_DEFAULT` | Host → VESC | Read default motor configuration |
+| 16 | `COMM_SET_APPCONF` | Host → VESC | Write app configuration |
+| 17 | `COMM_GET_APPCONF` | Host → VESC | Read app configuration |
+| 18 | `COMM_GET_APPCONF_DEFAULT` | Host → VESC | Read default app configuration |
+
+### System commands
+
+| ID | Name | Description |
+|----|------|-------------|
+| 0 | `COMM_FW_VERSION` | Get firmware version |
+| 29 | `COMM_REBOOT` | Reboot the device |
+| 30 | `COMM_ALIVE` | Keepalive (no response) |
+| 156 | `COMM_SHUTDOWN` | Shut down the device |
+| 20 | `COMM_TERMINAL_CMD` | Send a terminal command string |
+| 21 | `COMM_PRINT` | Print message from VESC |
+
+### Firmware update commands
+
+| ID | Name | Description |
+|----|------|-------------|
+| 1 | `COMM_JUMP_TO_BOOTLOADER` | Jump to bootloader for firmware update |
+| 2 | `COMM_ERASE_NEW_APP` | Erase application flash area |
+| 3 | `COMM_WRITE_NEW_APP_DATA` | Write firmware image chunk |
+
+### CAN forwarding
+
+| ID | Name | Description |
+|----|------|-------------|
+| 34 | `COMM_FORWARD_CAN` | Forward packet to another VESC on CAN bus by ID |
+| 62 | `COMM_PING_CAN` | Ping a device on the CAN bus |
+| 85 | `COMM_CAN_FWD_FRAME` | Forward a raw CAN frame |
+
+For the complete list of all 159+ commands, see [`datatypes.h`](https://github.com/vedderb/bldc/blob/master/datatypes.h) and the handler in [`comm/commands.c`](https://github.com/vedderb/bldc/blob/master/comm/commands.c).
+
+## UART configuration in VESC Tool
+
+To enable the UART app, go to **App Settings -> App to Use** and select **UART** (or a combination that includes UART). Configure the baud rate under **App Settings -> UART -> Baud Rate**. The default is 115200 bps.
+
+<Warning>
+  The VESC UART and USB interfaces share the same packet processing path (`commands_process_packet`). Do not connect both simultaneously from separate hosts, as they will interfere with each other.
+</Warning>

@@ -1,0 +1,247 @@
+---
+title: 'Configuration parameters'
+description: 'Reference for all key mc_configuration parameters with their default values from mcconf_default.h.'
+keywords: ['configuration', 'parameters', 'current limits', 'voltage limits', 'FOC', 'motor', 'PID', 'temperature']
+---
+
+All parameters belong to the `mc_configuration` struct defined in `datatypes.h`. Default values are set in `motor/mcconf_default.h` and can be overridden per hardware target.
+
+<Note>
+Hardware-specific builds may override any of these defaults. The values shown here are the firmware-wide defaults that apply when no hardware override is present.
+</Note>
+
+## Current limits
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `l_current_max` | `60.0 A` | Maximum motor phase current (upper limit). |
+| `l_current_min` | `-60.0 A` | Minimum motor phase current (lower limit, negative for braking). |
+| `l_in_current_max` | `99.0 A` | Maximum input (battery) current draw. |
+| `l_in_current_min` | `-60.0 A` | Minimum input current (negative = regen current back into battery). |
+| `l_abs_current_max` | `130.0 A` | Hard absolute current limit — triggers `FAULT_CODE_ABS_OVER_CURRENT` immediately. |
+| `l_current_max_scale` | `1.0` | Scale factor applied to `l_current_max` at runtime. |
+| `l_current_min_scale` | `1.0` | Scale factor applied to `l_current_min` at runtime. |
+| `l_in_current_map_start` | `1.0` | Input current to Q-axis current limit map start threshold. |
+| `l_in_current_map_filter` | `0.005` | Low-pass filter constant for the mapped input current limit. |
+| `l_watt_max` | `1,500,000 W` | Maximum output power. Set to a practical value for the drive system. |
+| `l_watt_min` | `-1,500,000 W` | Minimum output power (maximum braking power). |
+
+<Warning>
+Setting `l_abs_current_max` above the hardware current rating can destroy MOSFETs. Always set this below the gate driver and FET peak current specification.
+</Warning>
+
+## Voltage limits
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `l_min_vin` | `8.0 V` | Minimum input voltage — triggers `FAULT_CODE_UNDER_VOLTAGE` below this. |
+| `l_max_vin` | `57.0 V` | Maximum input voltage — triggers `FAULT_CODE_OVER_VOLTAGE` above this. |
+| `l_battery_cut_start` | `10.0 V` | Input voltage at which positive current output begins to ramp down. |
+| `l_battery_cut_end` | `8.0 V` | Input voltage at which positive current output is cut to zero. |
+| `l_battery_regen_cut_start` | `1000.0 V` | Input voltage at which regen current begins to ramp down (set very high to effectively disable). |
+| `l_battery_regen_cut_end` | `1100.0 V` | Input voltage at which regen current is cut to zero. |
+
+<Tip>
+Set `l_battery_cut_start` and `l_battery_cut_end` to match your battery chemistry's minimum cell voltage multiplied by cell count, to protect cells from deep discharge.
+</Tip>
+
+## Temperature limits
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `l_temp_fet_start` | `85.0 °C` | MOSFET temperature at which current begins to be reduced. |
+| `l_temp_fet_end` | `100.0 °C` | MOSFET temperature at which the motor is shut off (`FAULT_CODE_OVER_TEMP_FET`). |
+| `l_temp_motor_start` | `85.0 °C` | Motor temperature at which current begins to be reduced. |
+| `l_temp_motor_end` | `100.0 °C` | Motor temperature at which the motor is shut off (`FAULT_CODE_OVER_TEMP_MOTOR`). |
+| `l_temp_accel_dec` | `0.15` | Fraction by which temperature limits are reduced during acceleration to prevent thermal runaway. |
+| `m_motor_temp_sens_type` | `TEMP_SENSOR_NTC_10K_25C` | Type of motor temperature sensor. |
+| `m_ntc_motor_beta` | `3380.0` | Beta coefficient for the NTC motor thermistor. |
+| `m_ptc_motor_coeff` | `0.61 %/K` | Resistance change coefficient for PTC sensors. |
+
+## RPM limits
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `l_max_erpm` | `100,000 ERPM` | Maximum electrical RPM (upper). |
+| `l_min_erpm` | `-100,000 ERPM` | Minimum electrical RPM (lower). |
+| `l_erpm_start` | `0.8` | Fraction of `l_max_erpm` at which RPM-based current limiting begins. |
+| `l_max_erpm_fbrake` | `300 ERPM` | Maximum ERPM at which full braking is applied. |
+| `l_max_erpm_fbrake_cc` | `1500 ERPM` | Maximum ERPM at which full braking is applied under current control. |
+| `l_min_duty` | `0.005` | Minimum duty cycle. |
+| `l_max_duty` | `0.95` | Maximum duty cycle. |
+| `l_duty_start` | `1.0` | Duty cycle fraction at which current limiting begins (1.0 = disabled). |
+
+## Motor parameters
+
+These parameters describe the physical motor and are normally determined by running motor detection in VESC Tool.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `si_motor_poles` | `14` | Number of motor poles (pole count, not pole pairs). |
+| `si_gear_ratio` | `3.0` | Drive gear ratio (motor revolutions per wheel revolution). |
+| `si_wheel_diameter` | `0.083 m` | Wheel diameter in meters, used for speed and odometer calculations. |
+| `si_battery_type` | `BATTERY_TYPE_LIION_3_0__4_2` | Battery chemistry selection for display and BMS integration. |
+| `si_battery_cells` | `3` | Number of cells in series. |
+| `si_battery_ah` | `6.0 Ah` | Battery capacity in amp-hours. |
+| `si_motor_nl_current` | `1.0 A` | Motor no-load current, used for efficiency calculations. |
+| `foc_motor_l` | `7 µH` | Phase inductance (L). Set by motor detection. |
+| `foc_motor_r` | `15 mΩ` | Phase resistance (R). Set by motor detection. |
+| `foc_motor_flux_linkage` | `0.00245 Wb` | Motor flux linkage (λ). Set by motor detection. |
+| `foc_motor_ld_lq_diff` | `0.0 H` | Difference between d-axis and q-axis inductance (saliency). |
+
+<Note>
+The default motor parameters are placeholders. Always run motor detection for accurate FOC operation.
+</Note>
+
+## FOC parameters
+
+<AccordionGroup>
+
+  <Accordion title="Current controller">
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `foc_current_kp` | `0.03` | Proportional gain of the d/q axis current PI controller. |
+    | `foc_current_ki` | `50.0` | Integral gain of the d/q axis current PI controller. |
+    | `foc_f_zv` | `25,000 Hz` | Zero-vector (switching) frequency for FOC. |
+    | `foc_dt_us` | `0.12 µs` | Dead-time compensation in microseconds. |
+    | `foc_cc_decoupling` | `FOC_CC_DECOUPLING_DISABLED` | Cross-coupling compensation mode for the current controller. |
+    | `foc_sat_comp_mode` | `SAT_COMP_DISABLED` | Stator saturation compensation mode. |
+    | `foc_sat_comp` | `0.0` | Stator saturation compensation factor. |
+    | `foc_current_filter_const` | `0.1` | Low-pass filter constant for displayed/logged currents. |
+    | `foc_overmod_factor` | `1.0` | Overmodulation factor (>1.0 enables overmodulation). |
+
+  </Accordion>
+
+  <Accordion title="Observer">
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `foc_observer_type` | `FOC_OBSERVER_MXLEMMING_LAMBDA_COMP` | Position observer algorithm. |
+    | `foc_observer_gain` | `9×10⁷` | Observer feedback gain. A starting point is approximately 600 / L. |
+    | `foc_observer_gain_slow` | `0.05` | Fraction of `foc_observer_gain` used at minimum duty cycle. |
+    | `foc_observer_offset` | `-1.0` | Observer angle offset in timer update cycles. |
+    | `foc_pll_kp` | `2000.0` | PLL proportional gain used by the speed tracker. |
+    | `foc_pll_ki` | `30,000.0` | PLL integral gain used by the speed tracker. |
+
+  </Accordion>
+
+  <Accordion title="Sensor mode and open-loop">
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `foc_sensor_mode` | `FOC_SENSOR_MODE_SENSORLESS` | Sensor mode: sensorless, encoder, hall, HFI, or variants. |
+    | `foc_sl_erpm` | `3500 ERPM` | ERPM above which only the observer is used (hybrid mode transition). |
+    | `foc_sl_erpm_start` | `2500 ERPM` | ERPM below which only sensored commutation is used (hybrid mode). |
+    | `foc_openloop_rpm` | `1500 ERPM` | Target RPM during open-loop startup or index-finding. |
+    | `foc_openloop_rpm_low` | `0.0` | Fraction of `foc_openloop_rpm` at minimum current. |
+    | `foc_sl_openloop_hyst` | `0.1 s` | Time below minimum RPM before open-loop is activated. |
+    | `foc_sl_openloop_time` | `0.05 s` | Time to remain in open-loop after RPM ramp. |
+    | `foc_sl_openloop_time_lock` | `0.0 s` | Time to lock rotor at start of open-loop sequence. |
+    | `foc_sl_openloop_time_ramp` | `0.1 s` | Time to ramp up to open-loop speed. |
+
+  </Accordion>
+
+  <Accordion title="Field weakening">
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `foc_fw_current_max` | `0.0 A` | Maximum negative d-axis current for field weakening (0 = disabled). |
+    | `foc_fw_duty_start` | `0.8` | Duty cycle fraction at which field weakening begins. |
+    | `foc_fw_ramp_time` | `0.0 s` | Ramp time for field weakening current. |
+    | `foc_fw_q_current_factor` | `0.05` | Fraction of field weakening current fed to the q-axis when target current is 0. |
+
+    <Warning>
+    Field weakening increases motor and FET stress. Start with `foc_fw_current_max` set to a small fraction of `l_current_max` and monitor temperatures carefully.
+    </Warning>
+
+  </Accordion>
+
+  <Accordion title="HFI (High Frequency Injection)">
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `foc_hfi_voltage_start` | `20 V` | Injection voltage during ambiguity resolution at start. |
+    | `foc_hfi_voltage_run` | `4 V` | Injection voltage during normal HFI tracking. |
+    | `foc_hfi_voltage_max` | `6 V` | Injection voltage at maximum current. |
+    | `foc_hfi_gain` | `0.3` | Correction gain for HFI V2 mode. |
+    | `foc_hfi_max_err` | `0.30 rad` | Maximum HFI angle error before truncation (noise rejection). |
+    | `foc_hfi_hyst` | `0.0` | Sense vector offset hysteresis. |
+    | `foc_sl_erpm_hfi` | `3000 ERPM` | ERPM above which the observer takes over from HFI. |
+    | `foc_hfi_reset_erpm` | `500 ERPM` | ERPM below which the HFI state is reset. |
+    | `foc_hfi_samples` | `HFI_SAMPLES_16` | Number of HFI injection samples per electrical revolution. |
+    | `foc_hfi_start_samples` | `5` | Number of samples taken at start for ambiguity resolution. |
+    | `foc_hfi_obs_ovr_sec` | `0.001 s` | Duration to continue using the observer when entering HFI speed range. |
+    | `foc_hfi_amb_mode` | `FOC_AMB_MODE_SIX_VECTOR` | HFI ambiguity resolution mode. |
+    | `foc_hfi_amb_current` | `60.0 A` | Current used during HFI ambiguity resolution. |
+    | `foc_hfi_amb_tres` | `15` | Ambiguity resolution threshold. |
+
+  </Accordion>
+
+  <Accordion title="Phase filter">
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `foc_phase_filter_enable` | `true` | Enable hardware phase voltage filters when available. |
+    | `foc_phase_filter_disable_fault` | `true` | Disable `FAULT_CODE_PHASE_FILTER` (fault suppressed by default). |
+    | `foc_phase_filter_max_erpm` | `4000 ERPM` | Use phase voltage filter only below this ERPM. |
+
+  </Accordion>
+
+  <Accordion title="Temperature compensation and MTPA">
+
+    | Parameter | Default | Description |
+    |-----------|---------|-------------|
+    | `foc_temp_comp` | `false` | Enable motor resistance temperature compensation. |
+    | `foc_temp_comp_base_temp` | `25.0 °C` | Reference temperature for resistance compensation. |
+    | `foc_mtpa_mode` | `MTPA_MODE_OFF` | Maximum torque per amp algorithm mode. |
+
+  </Accordion>
+
+</AccordionGroup>
+
+## Speed PID parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `sp_pid_loop_rate` | `PID_RATE_1000_HZ` | PID loop execution rate (shared by speed and position PID). |
+| `s_pid_kp` | `0.004` | Speed PID proportional gain. |
+| `s_pid_ki` | `0.004` | Speed PID integral gain. |
+| `s_pid_kd` | `0.0001` | Speed PID derivative gain. |
+| `s_pid_kd_filter` | `0.2` | Low-pass filter constant for the speed PID derivative term. |
+| `s_pid_min_erpm` | `900 ERPM` | Minimum ERPM for the speed PID (below this, output is zero). |
+| `s_pid_allow_braking` | `true` | Allow the speed PID to apply braking current. |
+| `s_pid_ramp_erpms_s` | `25,000 ERPM/s` | Speed setpoint ramp rate. |
+| `s_pid_speed_source` | `S_PID_SPEED_SRC_PLL` | Speed source used by the PID controller. |
+
+## Position PID parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `p_pid_kp` | `0.025` | Position PID proportional gain. |
+| `p_pid_ki` | `0.0` | Position PID integral gain. |
+| `p_pid_kd` | `0.0` | Position PID derivative gain (error-based). |
+| `p_pid_kd_proc` | `0.00035` | Position PID derivative gain (process-variable-based). |
+| `p_pid_kd_filter` | `0.2` | Low-pass filter constant for the position PID derivative term. |
+| `p_pid_ang_div` | `1.0` | Divide angle error by this value before the PID. |
+| `p_pid_gain_dec_angle` | `0.0` | Reduce PID gains when error is below this angle. |
+| `p_pid_offset` | `0.0 °` | Angle offset added to the position setpoint. |
+
+## Miscellaneous parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `m_fault_stop_time_ms` | `500 ms` | Duration for which motor commands are ignored after a fault clears. |
+| `m_duty_ramp_step` | `0.02` | Maximum duty cycle ramp step per millisecond in duty control mode. |
+| `m_current_backoff_gain` | `0.5` | Gain of the current limiting backoff algorithm. |
+| `m_encoder_counts` | `8192` | Number of encoder counts per revolution. |
+| `m_sensor_port_mode` | `SENSOR_PORT_MODE_HALL` | Mode of the combined hall/encoder sensor port. |
+| `m_invert_direction` | `false` | Invert the motor rotation direction. |
+| `m_drv8301_oc_mode` | `DRV8301_OC_LIMIT` | Gate driver over-current protection mode. |
+| `m_drv8301_oc_adj` | `16` | Gate driver over-current protection threshold (0–31). |
+| `m_bldc_f_sw_min` | `3,000 Hz` | Minimum switching frequency in BLDC mode. |
+| `m_bldc_f_sw_max` | `35,000 Hz` | Maximum switching frequency in BLDC mode. |
+| `m_dc_f_sw` | `25,000 Hz` | Fixed switching frequency in DC motor mode. |
+| `m_out_aux_mode` | `OUT_AUX_MODE_OFF` | Auxiliary output pin behavior. |
+| `m_hall_extra_samples` | `3` | Extra ADC samples averaged when reading hall sensors. |
+| `m_batt_filter_const` | `45` | Battery voltage display filter time constant. |

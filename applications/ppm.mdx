@@ -1,0 +1,121 @@
+---
+title: "PPM application"
+description: "Configure the PPM application to read RC-receiver pulse-width signals and drive the motor."
+keywords: ["vesc", "ppm", "pulse position modulation", "rc receiver", "servo", "pwm"]
+---
+
+The PPM (Pulse Position Modulation) application reads servo-style pulse-width signals produced by RC receivers and standard ESC throttle inputs. It decodes the pulse width into a normalised level and applies it to the motor using the configured control type.
+
+## Signal specification
+
+Default pulse-width range as defined in `appconf_default.h`:
+
+| Parameter | Default value | Description |
+|---|---|---|
+| `pulse_start` | 1.0 ms | Minimum pulse width (full reverse or idle) |
+| `pulse_end` | 2.0 ms | Maximum pulse width (full throttle) |
+| `pulse_center` | 1.5 ms | Center/neutral pulse width |
+| `hyst` | 0.15 | Deadband around center (normalised 0–1) |
+
+These map to the `ppm_config` struct fields `pulse_start`, `pulse_end`, and `pulse_center`.
+
+<Tip>
+Most RC receivers and flight controllers output a standard 1–2 ms pulse at 50 Hz. VESC can read this directly on the PPM input pin.
+</Tip>
+
+## Control types
+
+The `ppm_control_type` enum determines how the decoded pulse level controls the motor:
+
+```c
+typedef enum {
+    PPM_CTRL_TYPE_NONE = 0,
+    PPM_CTRL_TYPE_CURRENT,
+    PPM_CTRL_TYPE_CURRENT_NOREV,
+    PPM_CTRL_TYPE_CURRENT_NOREV_BRAKE,
+    PPM_CTRL_TYPE_DUTY,
+    PPM_CTRL_TYPE_DUTY_NOREV,
+    PPM_CTRL_TYPE_PID,
+    PPM_CTRL_TYPE_PID_NOREV,
+    PPM_CTRL_TYPE_CURRENT_BRAKE_REV_HYST,
+    PPM_CTRL_TYPE_CURRENT_SMART_REV,
+    PPM_CTRL_TYPE_PID_POSITION_180,
+    PPM_CTRL_TYPE_PID_POSITION_360,
+} ppm_control_type;
+```
+
+| Control type | Description |
+|---|---|
+| `CURRENT` | Bidirectional current control. Below center = reverse. |
+| `CURRENT_NOREV` | Current control, forward only. |
+| `CURRENT_NOREV_BRAKE` | Forward current with braking below neutral. |
+| `DUTY` | Direct duty-cycle control, bidirectional. |
+| `DUTY_NOREV` | Duty-cycle, forward only. |
+| `PID` | Speed PID, bidirectional. |
+| `PID_NOREV` | Speed PID, forward only. |
+| `CURRENT_SMART_REV` | Current control with timed smart-reverse. |
+| `PID_POSITION_180` | Position PID over ±180°. |
+| `PID_POSITION_360` | Position PID over 0–360°. |
+
+## Configuration parameters
+
+The full `ppm_config` struct:
+
+```c
+typedef struct {
+    ppm_control_type ctrl_type;
+    float pid_max_erpm;
+    float hyst;
+    float pulse_start;
+    float pulse_end;
+    float pulse_center;
+    bool median_filter;
+    SAFE_START_MODE safe_start;
+    float throttle_exp;
+    float throttle_exp_brake;
+    thr_exp_mode throttle_exp_mode;
+    float ramp_time_pos;
+    float ramp_time_neg;
+    bool multi_esc;
+    bool tc;
+    float tc_max_diff;
+    float max_erpm_for_dir;
+    float smart_rev_max_duty;
+    float smart_rev_ramp_time;
+} ppm_config;
+```
+
+### Key parameters
+
+| Field | Default | Description |
+|---|---|---|
+| `median_filter` | `true` | Applies a 3-sample median filter to reduce glitches. |
+| `safe_start` | `SAFE_START_REGULAR` | Requires throttle to return to neutral before output begins. |
+| `ramp_time_pos` | 0.4 s | Time to ramp from 0 to full positive output. |
+| `ramp_time_neg` | 0.2 s | Time to ramp from 0 to full negative output. |
+| `multi_esc` | `true` | Forwards the command to other VESCs on the CAN bus. |
+| `tc` | `false` | Enables traction control between CAN-connected ESCs. |
+| `tc_max_diff` | 3000 ERPM | Maximum allowed ERPM difference between ESCs for traction control. |
+| `smart_rev_max_duty` | 0.07 | Maximum duty cycle during smart reverse. |
+| `smart_rev_ramp_time` | 3.0 s | Time the stick must be held in reverse before smart-reverse activates. |
+
+## Runtime API
+
+```c
+void app_ppm_start(void);
+void app_ppm_stop(void);
+void app_ppm_configure(ppm_config *conf);
+float app_ppm_get_decoded_level(void);
+void app_ppm_detach(bool detach);
+void app_ppm_override(float val);
+```
+
+`app_ppm_get_decoded_level` returns the current decoded input in the range −1.0 to 1.0. `app_ppm_detach` and `app_ppm_override` let other firmware components take temporary control of the output without stopping the PPM thread.
+
+## Safe start
+
+<Warning>
+With `safe_start` enabled, the motor will not respond until the PPM signal returns to the neutral (center) position after power-on or a timeout. This prevents unintentional movement when power is applied with the throttle open.
+</Warning>
+
+The firmware requires a minimum of `MIN_PULSES_WITHOUT_POWER` (50) valid pulses at neutral before allowing output. This constant is defined at the top of `app_ppm.c`.

@@ -1,0 +1,266 @@
+---
+title: "Custom hardware configuration"
+description: "How to create a custom hardware configuration file for a VESC-compatible board and register it with the build system."
+keywords: ["custom hardware", "hw config", "HW_SOURCE", "HW_HEADER", "hw_custom", "Makefile", "fw_custom"]
+---
+
+If you are designing your own VESC-compatible board or adapting the firmware to non-standard hardware, you can add a custom hardware configuration without modifying any existing files.
+
+## How config files are structured
+
+A typical hardware target consists of two files:
+
+- A **header file** (`.h`) that defines all pin assignments, ADC indexes, hardware property flags, and electrical limits.
+- A **source file** (`.c`) that implements `hw_init_gpio()` and any hardware-specific initialization.
+
+For boards with multiple hardware revisions sharing the same schematic, the convention is to split the definitions into a `hw_<name>_core.h` / `hw_<name>_core.c` pair and have thin revision headers that select the revision before including the core:
+
+```c
+// hw_example.h — selects revision MK1 then delegates to the core
+#ifndef HW_EXAMPLE_H_
+#define HW_EXAMPLE_H_
+
+#define HW_EXAMPLE_IS_MK1
+
+#include "hw_example_core.h"
+
+#endif /* HW_EXAMPLE_H_ */
+```
+
+```c
+// hw_example_core.h — contains all actual definitions
+#ifdef HW_EXAMPLE_IS_MK1
+#define HW_NAME  "Example"
+#else
+#error "Must include hardware type"
+#endif
+```
+
+This pattern keeps revision-specific overrides (voltage limits, shunt values, etc.) out of the shared core while keeping the GPIO and peripheral definitions in one place.
+
+## Required defines
+
+The following defines are required in every hardware header. The build will fail with a descriptive error if they are missing.
+
+### Identity
+
+```c
+#define HW_NAME    "MyBoard"   // Human-readable name shown in VESC Tool
+#define HW_MAJOR   1           // Major hardware revision
+#define HW_MINOR   0           // Minor hardware revision
+```
+
+### Hardware property flags
+
+Declare which gate driver and current measurement topology the board uses:
+
+```c
+// Gate driver — pick exactly one
+#define HW_HAS_DRV8301
+// #define HW_HAS_DRV8305
+// #define HW_HAS_DRV8316
+// #define HW_HAS_DRV8320S
+// #define HW_HAS_DRV8323S
+
+// Current measurement
+#define HW_HAS_3_SHUNTS        // Board has three current sensors
+#define HW_HAS_PHASE_SHUNTS    // Sensors are on motor phases (not bus)
+#define HW_HAS_PHASE_FILTERS   // Hardware low-pass filters on phase voltage
+```
+
+### Gate control macros
+
+```c
+#define ENABLE_GATE()   palSetPad(GPIOB, 5)
+#define DISABLE_GATE()  palClearPad(GPIOB, 5)
+#define DCCAL_ON()
+#define DCCAL_OFF()
+#define IS_DRV_FAULT()  (!palReadPad(GPIOB, 7))
+```
+
+### ADC configuration
+
+Define the number of ADC conversions per cycle and map each channel to its signal:
+
+```c
+#define HW_ADC_INJ_CHANNELS   3
+#define HW_ADC_NBR_CONV       5
+#define HW_ADC_CHANNELS       (HW_ADC_NBR_CONV * 3)
+
+// ADC index assignments
+#define ADC_IND_CURR1    0
+#define ADC_IND_CURR2    1
+#define ADC_IND_CURR3    2
+#define ADC_IND_SENS1    3
+#define ADC_IND_SENS2    4
+#define ADC_IND_SENS3    5
+#define ADC_IND_VIN_SENS 11
+#define ADC_IND_TEMP_MOS 8
+#define ADC_IND_TEMP_MOTOR 9
+#define ADC_IND_VREFINT  12
+```
+
+### Voltage divider and current scaling
+
+```c
+#define V_REG              3.3       // MCU supply voltage
+#define VIN_R1             39000.0   // Upper voltage divider resistor (Ω)
+#define VIN_R2             2200.0    // Lower voltage divider resistor (Ω)
+#define CURRENT_AMP_GAIN   20.0      // Current amplifier gain
+#define CURRENT_SHUNT_RES  0.0005    // Shunt resistance (Ω)
+
+// Derived macros
+#define GET_INPUT_VOLTAGE() \
+    ((V_REG / 4095.0) * (float)ADC_Value[ADC_IND_VIN_SENS] * \
+     ((VIN_R1 + VIN_R2) / VIN_R2))
+```
+
+### Temperature sensing
+
+```c
+// NTC thermistor on PCB (10 kΩ, beta 3380)
+#define NTC_RES(adc_val)    ((4095.0 * 10000.0) / adc_val - 10000.0)
+#define NTC_TEMP(adc_ind)   (1.0 / ((logf(NTC_RES(ADC_Value[adc_ind]) / 10000.0) \
+                             / 3380.0) + (1.0 / 298.15)) - 273.15)
+
+// Motor NTC on low side
+#define NTC_RES_MOTOR(adc_val)  (10000.0 / ((4095.0 / (float)adc_val) - 1.0))
+#define NTC_TEMP_MOTOR(beta)    (1.0 / ((logf(NTC_RES_MOTOR( \
+                                 ADC_Value[ADC_IND_TEMP_MOTOR]) / 10000.0) \
+                                 / beta) + (1.0 / 298.15)) - 273.15)
+```
+
+### Hardware limits
+
+Limits define the allowable range for configuration parameters. They are enforced in VESC Tool and at runtime.
+
+```c
+#define HW_LIM_CURRENT      -120.0, 120.0
+#define HW_LIM_CURRENT_IN   -120.0, 120.0
+#define HW_LIM_CURRENT_ABS   0.0, 160.0
+#define HW_LIM_VIN           6.0, 57.0
+#define HW_LIM_ERPM         -200e3, 200e3
+#define HW_LIM_DUTY_MIN      0.0, 0.1
+#define HW_LIM_DUTY_MAX      0.0, 0.99
+#define HW_LIM_TEMP_FET     -40.0, 110.0
+```
+
+### Peripheral pins
+
+Define the peripheral assignments for UART, I2C, SPI, hall/encoder, and servo decoding. See `hwconf/example/hw_example_core.h` for the full set of required peripheral pin defines.
+
+## Source file
+
+The `.c` file must implement `hw_init_gpio()`. This function configures GPIO pads and initializes the gate driver at startup:
+
+```c
+#include "hw.h"
+#include "ch.h"
+#include "hal.h"
+#include "drv8301.h"
+
+void hw_init_gpio(void) {
+    // Enable GPIO clocks
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
+    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE);
+
+    // Configure gate enable pin
+    palSetPadMode(GPIOB, 5,
+        PAL_MODE_OUTPUT_PUSHPULL | PAL_STM32_OSPEED_HIGHEST);
+
+    // ... configure remaining GPIO pins ...
+
+    // Initialize gate driver last
+    drv8301_init();
+}
+```
+
+Each gate driver (`HW_HAS_DRV8301`, `HW_HAS_DRV8320S`, etc.) requires calling its own `_init()` function at the end of `hw_init_gpio()`.
+
+## Using the example config as a template
+
+The `hwconf/example/` directory contains a complete reference implementation:
+
+```
+hwconf/example/
+├── hw_example.h       # Revision selector — copy and rename this
+├── hw_example_core.h  # All pin and limit defines — copy and rename this
+├── hw_example_core.c  # hw_init_gpio() implementation
+└── README.md
+```
+
+<Steps>
+  <Step title="Copy the example files">
+    Copy all three source files to a new directory inside `hwconf/`:
+
+    ```bash
+    mkdir hwconf/myboard
+    cp hwconf/example/hw_example.h       hwconf/myboard/hw_myboard.h
+    cp hwconf/example/hw_example_core.h  hwconf/myboard/hw_myboard_core.h
+    cp hwconf/example/hw_example_core.c  hwconf/myboard/hw_myboard_core.c
+    ```
+  </Step>
+
+  <Step title="Update include guards and names">
+    Replace every occurrence of `HW_EXAMPLE` with `HW_MYBOARD` and `hw_example` with `hw_myboard` in all three files.
+  </Step>
+
+  <Step title="Set HW_NAME">
+    In the core header, set `HW_NAME` to a unique string for your board:
+
+    ```c
+    #define HW_NAME  "MyBoard"
+    ```
+  </Step>
+
+  <Step title="Adjust pin assignments">
+    Update all GPIO, ADC, UART, SPI, I2C, and encoder pin definitions to match your schematic.
+  </Step>
+
+  <Step title="Set electrical limits">
+    Update the `HW_LIM_*` defines to match your hardware's rated voltage, current, and temperature ranges.
+  </Step>
+
+  <Step title="Build with fw_custom">
+    Build the firmware without adding your board to the main Makefile:
+
+    ```bash
+    make fw_custom \
+      HW_SRC=hwconf/myboard/hw_myboard_core.c \
+      HW_HEADER=hwconf/myboard/hw_myboard.h
+    ```
+
+    The built binary appears at `build/custom/custom.bin`.
+  </Step>
+</Steps>
+
+## Registering the target in the build system
+
+To have your board appear as a named target (for example `fw_myboard`), place the header file in a location where the Makefile can discover it. The Makefile scans all `hwconf/**/*.h` files (excluding `*_core.h`) to generate targets:
+
+```makefile
+# From Makefile
+RAW_TARGET_PATHS := $(call rwildcard,$(ROOT_DIR)/hwconf,*.h)
+TARGET_PATHS     := $(strip $(filter-out %core.h,$(RAW_TARGET_PATHS)))
+ALL_BOARD_NAMES  := $(sort $(subst .h,,$(subst hw_,,$(filter hw_%, \
+                      $(notdir $(TARGET_PATHS))))))
+```
+
+A file named `hwconf/myboard/hw_myboard.h` automatically produces the target `myboard`, letting you use:
+
+```bash
+make fw_myboard
+make fw_myboard_flash
+make fw_myboard_clean
+```
+
+No other Makefile changes are needed.
+
+<Tip>
+  If your board has multiple revisions, follow the `core.h` / `core.c` pattern used by Trampa boards. The core files hold the shared implementation; each revision header just defines a flag and includes the core. The Makefile discovers only the non-core headers as build targets.
+</Tip>
+
+<Warning>
+  Setting `HW_LIM_VIN` higher than the hardware supports can cause overvoltage damage. Always set limits conservatively and test thoroughly before deploying custom firmware.
+</Warning>

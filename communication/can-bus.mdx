@@ -1,0 +1,321 @@
+---
+title: 'CAN bus'
+description: 'CAN bus communication in VESC firmware, including frame format, command IDs, and motor control commands.'
+keywords: ['CAN', 'CAN bus', 'VESC', 'motor control', 'CAN_PACKET', 'extended ID', 'UAVCAN']
+---
+
+The VESC firmware supports CAN bus communication for controlling multiple VESC-based devices on a shared bus. The CAN mode can be selected in VESC Tool under **App Settings -> General -> CAN Mode**.
+
+## CAN modes
+
+<CardGroup cols={2}>
+  <Card title="VESC" icon="microchip">
+    Default VESC CAN bus. Required for CAN forwarding and configuring multiple VESC-based devices using VESC Tool.
+  </Card>
+  <Card title="UAVCAN" icon="drone">
+    Basic implementation of `uavcan.equipment.esc`. See the [DroneCAN documentation](https://dronecan.github.io) for details.
+  </Card>
+  <Card title="Comm Bridge" icon="bridge">
+    Bridges the CAN bus to commands. Useful for using VESC Tool as a generic CAN interface and debugger.
+  </Card>
+  <Card title="Unused" icon="ban">
+    CAN frames are not processed and are ignored. Custom applications and scripts can still process CAN frames. Similar to Comm Bridge, but received frames are not forwarded using commands.
+  </Card>
+</CardGroup>
+
+The default and recommended CAN mode is **VESC**.
+
+## VESC ID configuration
+
+Each VESC-based device on the bus must have a unique ID. You can set the VESC ID in VESC Tool under **App Settings -> General -> VESC ID**. A device only accepts incoming CAN frames that match its configured ID.
+
+## Timeout
+
+By default, the VESC stops the motor when nothing has been received on the CAN bus for more than 0.5 seconds.
+
+<Warning>
+  Do not disable the timeout in production systems. If communication is interrupted unexpectedly, the motor will continue running with no way to stop it via CAN.
+</Warning>
+
+You can change the timeout value in VESC Tool under **App Settings -> General**. Setting it to `0` disables the timeout entirely.
+
+A **timeout brake current** can also be configured. When timeout occurs, the VESC applies this current to brake the motor. The default is `0`, which simply releases the motor with no braking force.
+
+<Tip>
+  To prevent timeouts, send commands continuously at a fixed rate — 50 Hz is recommended.
+</Tip>
+
+## Frame format
+
+All VESC CAN frames use **29-bit extended IDs**. The receiver ID and command ID are both embedded in the extended frame ID:
+
+| Bits | Field | Description |
+|------|-------|-------------|
+| B28 – B16 | Unused | Always zero |
+| B15 – B8 | Command ID | The `CAN_PACKET_ID` value |
+| B7 – B0 | VESC ID | Target device ID |
+
+The extended ID is constructed as:
+
+```c
+uint32_t eid = controller_id | ((uint32_t)command_id << 8);
+```
+
+## Single-frame commands
+
+Simple CAN commands each fit in a single CAN frame. The data payload is always a **32-bit big-endian signed integer** representing the command argument, multiplied by the scaling factor for that command.
+
+**Example:** Setting 51 A of current (`CAN_PACKET_SET_CURRENT`, command ID `1`, scaling `1000`) on VESC ID `23`:
+
+| Field | Value |
+|-------|-------|
+| Extended ID | `0x0117` |
+| B0 | `0x00` |
+| B1 | `0x00` |
+| B2 | `0xC7` |
+| B3 | `0x38` |
+
+`51 * 1000 = 51000 = 0x0000C738`
+
+### Available simple commands
+
+| Command | ID | Scaling | Unit | Range | Description |
+|---------|----|---------|------|-------|-------------|
+| `CAN_PACKET_SET_DUTY` | 0 | 100000 | % / 100 | -1.0 to 1.0 | Duty cycle |
+| `CAN_PACKET_SET_CURRENT` | 1 | 1000 | A | -MOTOR_MAX to MOTOR_MAX | Motor current |
+| `CAN_PACKET_SET_CURRENT_BRAKE` | 2 | 1000 | A | -MOTOR_MAX to MOTOR_MAX | Braking current |
+| `CAN_PACKET_SET_RPM` | 3 | 1 | RPM | -MAX_RPM to MAX_RPM | Motor RPM |
+| `CAN_PACKET_SET_POS` | 4 | 1000000 | Degrees | 0 to 360 | Position |
+| `CAN_PACKET_SET_CURRENT_REL` | 10 | 100000 | % / 100 | -1.0 to 1.0 | Relative current |
+| `CAN_PACKET_SET_CURRENT_BRAKE_REL` | 11 | 100000 | % / 100 | -1.0 to 1.0 | Relative braking current |
+| `CAN_PACKET_SET_CURRENT_HANDBRAKE` | 12 | 1000 | A | -MOTOR_MAX to MOTOR_MAX | Handbrake current |
+| `CAN_PACKET_SET_CURRENT_HANDBRAKE_REL` | 13 | 100000 | % / 100 | -1.0 to 1.0 | Relative handbrake current |
+
+<Note>
+  Commands sent outside the valid range are clamped at the limit. For example, if the maximum braking current is configured to 50 A and you send 60 A with `CAN_PACKET_SET_CURRENT_BRAKE`, the firmware will use 50 A.
+</Note>
+
+### C code example
+
+The following implementation shows how to construct and send all simple CAN commands. Provide your own `can_transmit_eid` function that writes an extended-ID frame to the bus.
+
+```c
+#include <stdint.h>
+
+// Provide this function for your hardware
+void can_transmit_eid(uint32_t id, const uint8_t *data, uint8_t len) {
+    // hardware-specific CAN transmit
+}
+
+typedef enum {
+    CAN_PACKET_SET_DUTY                    = 0,
+    CAN_PACKET_SET_CURRENT                 = 1,
+    CAN_PACKET_SET_CURRENT_BRAKE           = 2,
+    CAN_PACKET_SET_RPM                     = 3,
+    CAN_PACKET_SET_POS                     = 4,
+    CAN_PACKET_SET_CURRENT_REL             = 10,
+    CAN_PACKET_SET_CURRENT_BRAKE_REL       = 11,
+    CAN_PACKET_SET_CURRENT_HANDBRAKE       = 12,
+    CAN_PACKET_SET_CURRENT_HANDBRAKE_REL   = 13,
+    CAN_PACKET_MAKE_ENUM_32_BITS           = 0xFFFFFFFF,
+} CAN_PACKET_ID;
+
+void buffer_append_int16(uint8_t *buffer, int16_t number, int32_t *index) {
+    buffer[(*index)++] = number >> 8;
+    buffer[(*index)++] = number;
+}
+
+void buffer_append_int32(uint8_t *buffer, int32_t number, int32_t *index) {
+    buffer[(*index)++] = number >> 24;
+    buffer[(*index)++] = number >> 16;
+    buffer[(*index)++] = number >> 8;
+    buffer[(*index)++] = number;
+}
+
+void buffer_append_float16(uint8_t *buffer, float number, float scale, int32_t *index) {
+    buffer_append_int16(buffer, (int16_t)(number * scale), index);
+}
+
+void buffer_append_float32(uint8_t *buffer, float number, float scale, int32_t *index) {
+    buffer_append_int32(buffer, (int32_t)(number * scale), index);
+}
+
+void comm_can_set_duty(uint8_t controller_id, float duty) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_int32(buffer, (int32_t)(duty * 100000.0), &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_DUTY << 8), buffer, send_index);
+}
+
+void comm_can_set_current(uint8_t controller_id, float current) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_int32(buffer, (int32_t)(current * 1000.0), &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_CURRENT << 8), buffer, send_index);
+}
+
+// Same as comm_can_set_current, but also sets an off delay (seconds).
+// The off delay keeps the current controller active briefly after the
+// current drops below the minimum threshold.
+void comm_can_set_current_off_delay(uint8_t controller_id, float current, float off_delay) {
+    int32_t send_index = 0;
+    uint8_t buffer[6];
+    buffer_append_int32(buffer, (int32_t)(current * 1000.0), &send_index);
+    buffer_append_float16(buffer, off_delay, 1e3, &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_CURRENT << 8), buffer, send_index);
+}
+
+void comm_can_set_current_brake(uint8_t controller_id, float current) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_int32(buffer, (int32_t)(current * 1000.0), &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_CURRENT_BRAKE << 8), buffer, send_index);
+}
+
+void comm_can_set_rpm(uint8_t controller_id, float rpm) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_int32(buffer, (int32_t)rpm, &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_RPM << 8), buffer, send_index);
+}
+
+void comm_can_set_pos(uint8_t controller_id, float pos) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_int32(buffer, (int32_t)(pos * 1000000.0), &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_POS << 8), buffer, send_index);
+}
+
+void comm_can_set_current_rel(uint8_t controller_id, float current_rel) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_float32(buffer, current_rel, 1e5, &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_CURRENT_REL << 8), buffer, send_index);
+}
+
+void comm_can_set_current_brake_rel(uint8_t controller_id, float current_rel) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_float32(buffer, current_rel, 1e5, &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_CURRENT_BRAKE_REL << 8), buffer, send_index);
+}
+
+void comm_can_set_handbrake(uint8_t controller_id, float current) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_float32(buffer, current, 1e3, &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_CURRENT_HANDBRAKE << 8), buffer, send_index);
+}
+
+void comm_can_set_handbrake_rel(uint8_t controller_id, float current_rel) {
+    int32_t send_index = 0;
+    uint8_t buffer[4];
+    buffer_append_float32(buffer, current_rel, 1e5, &send_index);
+    can_transmit_eid(controller_id |
+            ((uint32_t)CAN_PACKET_SET_CURRENT_HANDBRAKE_REL << 8), buffer, send_index);
+}
+```
+
+## Status messages
+
+The VESC can broadcast periodic status messages on the CAN bus. Enable them in VESC Tool under **App Settings -> General -> CAN Status Messages Rate x**.
+
+Two independent rate groups are available. Each group can carry any combination of the six status message types. Using two rates lets you transmit high-priority telemetry frequently and lower-priority data at a reduced rate, keeping bus utilization in check.
+
+### Available status messages
+
+| Command | ID | Data |
+|---------|----|------|
+| `CAN_PACKET_STATUS` | 9 | ERPM, Current, Duty Cycle |
+| `CAN_PACKET_STATUS_2` | 14 | Ah Used, Ah Charged |
+| `CAN_PACKET_STATUS_3` | 15 | Wh Used, Wh Charged |
+| `CAN_PACKET_STATUS_4` | 16 | Temp FET, Temp Motor, Current In, PID position |
+| `CAN_PACKET_STATUS_5` | 27 | Tachometer, Voltage In |
+| `CAN_PACKET_STATUS_6` | 58 | ADC1, ADC2, ADC3, PPM |
+
+### Status message encoding
+
+<AccordionGroup>
+  <Accordion title="CAN_PACKET_STATUS (ID 9)">
+    | Bytes | Data | Unit | Scale |
+    |-------|------|------|-------|
+    | B0 – B3 | ERPM | RPM | 1 |
+    | B4 – B5 | Current | A | 10 |
+    | B6 – B7 | Duty Cycle | % / 100 | 1000 |
+  </Accordion>
+  <Accordion title="CAN_PACKET_STATUS_2 (ID 14)">
+    | Bytes | Data | Unit | Scale |
+    |-------|------|------|-------|
+    | B0 – B3 | Amp Hours Used | Ah | 10000 |
+    | B4 – B7 | Amp Hours Charged | Ah | 10000 |
+  </Accordion>
+  <Accordion title="CAN_PACKET_STATUS_3 (ID 15)">
+    | Bytes | Data | Unit | Scale |
+    |-------|------|------|-------|
+    | B0 – B3 | Watt Hours Used | Wh | 10000 |
+    | B4 – B7 | Watt Hours Charged | Wh | 10000 |
+  </Accordion>
+  <Accordion title="CAN_PACKET_STATUS_4 (ID 16)">
+    | Bytes | Data | Unit | Scale |
+    |-------|------|------|-------|
+    | B0 – B1 | FET Temperature | °C | 10 |
+    | B2 – B3 | Motor Temperature | °C | 10 |
+    | B4 – B5 | Input Current | A | 10 |
+    | B6 – B7 | PID Position | Degrees | 50 |
+  </Accordion>
+  <Accordion title="CAN_PACKET_STATUS_5 (ID 27)">
+    | Bytes | Data | Unit | Scale |
+    |-------|------|------|-------|
+    | B0 – B3 | Tachometer | EREV | 6 |
+    | B4 – B5 | Input Voltage | V | 10 |
+  </Accordion>
+  <Accordion title="CAN_PACKET_STATUS_6 (ID 58)">
+    | Bytes | Data | Unit | Scale |
+    |-------|------|------|-------|
+    | B0 – B1 | ADC1 | V | 1000 |
+    | B2 – B3 | ADC2 | V | 1000 |
+    | B4 – B5 | ADC3 | V | 1000 |
+    | B6 – B7 | PPM | % / 100 | 1000 |
+  </Accordion>
+</AccordionGroup>
+
+## Full CAN packet ID reference
+
+The complete `CAN_PACKET_ID` enum is defined in `datatypes.h`. Multi-frame commands (IDs 5–8) are used internally for tunneling full VESC serial protocol packets over CAN.
+
+| ID | Name | Description |
+|----|------|-------------|
+| 0 | `CAN_PACKET_SET_DUTY` | Set duty cycle |
+| 1 | `CAN_PACKET_SET_CURRENT` | Set motor current |
+| 2 | `CAN_PACKET_SET_CURRENT_BRAKE` | Set braking current |
+| 3 | `CAN_PACKET_SET_RPM` | Set RPM |
+| 4 | `CAN_PACKET_SET_POS` | Set position |
+| 5 | `CAN_PACKET_FILL_RX_BUFFER` | Multi-frame: fill receive buffer |
+| 6 | `CAN_PACKET_FILL_RX_BUFFER_LONG` | Multi-frame: fill receive buffer (long) |
+| 7 | `CAN_PACKET_PROCESS_RX_BUFFER` | Multi-frame: process receive buffer |
+| 8 | `CAN_PACKET_PROCESS_SHORT_BUFFER` | Multi-frame: process short buffer |
+| 9 | `CAN_PACKET_STATUS` | Status message 1 |
+| 10 | `CAN_PACKET_SET_CURRENT_REL` | Set relative current |
+| 11 | `CAN_PACKET_SET_CURRENT_BRAKE_REL` | Set relative braking current |
+| 12 | `CAN_PACKET_SET_CURRENT_HANDBRAKE` | Set handbrake current |
+| 13 | `CAN_PACKET_SET_CURRENT_HANDBRAKE_REL` | Set relative handbrake current |
+| 14 | `CAN_PACKET_STATUS_2` | Status message 2 |
+| 15 | `CAN_PACKET_STATUS_3` | Status message 3 |
+| 16 | `CAN_PACKET_STATUS_4` | Status message 4 |
+| 17 | `CAN_PACKET_PING` | Ping device |
+| 18 | `CAN_PACKET_PONG` | Ping response |
+| 27 | `CAN_PACKET_STATUS_5` | Status message 5 |
+| 31 | `CAN_PACKET_SHUTDOWN` | Shutdown device |
+| 58 | `CAN_PACKET_STATUS_6` | Status message 6 |
+| 63 | `CAN_PACKET_UPDATE_BAUD` | Update CAN baud rate |
+
+For the authoritative list see [`datatypes.h`](https://github.com/vedderb/bldc/blob/master/datatypes.h) and the implementation in [`comm/comm_can.c`](https://github.com/vedderb/bldc/blob/master/comm/comm_can.c).

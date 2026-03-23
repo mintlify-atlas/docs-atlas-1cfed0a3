@@ -1,0 +1,316 @@
+---
+title: 'VESC extensions'
+description: 'Complete reference for VESC-specific LispBM extensions: motor control, configuration, CAN bus, IMU, GPIO, and more.'
+keywords: ['lispbm', 'vesc', 'extensions', 'motor control', 'can bus', 'imu', 'gpio', 'conf-get', 'set-duty', 'set-rpm']
+---
+
+VESC extensions are built-in functions available in all LispBM scripts running on VESC hardware. They expose motor control, sensor reading, CAN communication, hardware I/O, and more. Extensions are registered at startup — no import is needed.
+
+<Note>
+  Extension availability varies by platform and firmware version. Functions marked **ESC** run on STM32-based controllers. Functions marked **Express** run on VESC Express (ESP32). Many extensions work on both.
+</Note>
+
+## Console and utilities
+
+| Function | Signature | Description |
+|---|---|---|
+| `print` | `(print arg1 ... argN)` | Print values to the VESC Tool console. Each argument prints on its own line. |
+| `puts` | `(puts str)` | Print a string without quotes. Supports up to 400 bytes (vs 256 for `print`). |
+| `set-print-prefix` | `(set-print-prefix str)` | Prefix all console output with `str`. Useful when multiple devices share a console over CAN. |
+| `systime` | `(systime)` | System time in ticks since boot. |
+| `secs-since` | `(secs-since timestamp)` | Seconds elapsed since a `systime` value. |
+| `sleep` | `(sleep seconds)` | Suspend the current thread for the given number of seconds. |
+| `timeout-reset` | `(timeout-reset)` | Reset the motor timeout watchdog. Must be called at least once per second while controlling the motor. |
+| `sysinfo` | `(sysinfo param)` | Read system information (see below). |
+
+```clojure
+(sysinfo 'hw-name)    ; hardware name, e.g. "60"
+(sysinfo 'fw-ver)     ; firmware version as (major minor beta)
+(sysinfo 'runtime)    ; total runtime in seconds
+(sysinfo 'uuid)       ; STM32 UUID
+(sysinfo 'git-hash)   ; git hash of running firmware
+```
+
+## Motor set commands
+
+These functions command the motor. Each call also resets the timeout watchdog.
+
+<Warning>
+  All motor set commands are ESC-only. They have no effect on VESC Express.
+</Warning>
+
+| Function | Signature | Description |
+|---|---|---|
+| `set-duty` | `(set-duty dutycycle)` | Set duty cycle. Range -1.0 to 1.0. |
+| `set-current` | `(set-current current)` | Set motor current in amperes. Positive = motoring, negative = regeneration. |
+| `set-current-rel` | `(set-current-rel current)` | Set current relative to max current. Range -1.0 to 1.0. |
+| `set-rpm` | `(set-rpm rpm)` | Set RPM speed control target. |
+| `set-brake` | `(set-brake current)` | Set braking current in amperes. |
+| `set-brake-rel` | `(set-brake-rel current)` | Set braking current relative to max current. Range 0.0 to 1.0. |
+| `set-handbrake` | `(set-handbrake current)` | Open-loop hold current. Holds position at 0 rpm at the cost of efficiency. |
+| `set-handbrake-rel` | `(set-handbrake-rel current)` | Handbrake current relative to max. Range 0.0 to 1.0. |
+| `set-pos` | `(set-pos pos)` | Position control. Target in degrees, range 0.0 to 360.0. |
+| `set-kill-sw` | `(set-kill-sw state)` | Set kill switch state. `1` disables the motor immediately (emergency stop). |
+| `foc-openloop` | `(foc-openloop current rpm)` | Run FOC open-loop at given current and RPM. |
+| `foc-beep` | `(foc-beep freq time voltage)` | Play a beep through the motor at `freq` Hz for `time` seconds. |
+
+```clojure
+; Spin motor at 50% duty cycle
+(set-duty 0.5)
+
+; Set current to 10 A
+(set-current 10.0)
+
+; Target 3000 RPM
+(set-rpm 3000)
+
+; Emergency stop
+(set-kill-sw 1)
+```
+
+## Motor get commands
+
+All motor get commands accept an optional `optFilter` argument. When set to `1`, the return value is the average since the function was last called rather than the instantaneous reading.
+
+| Function | Returns |
+|---|---|
+| `(get-duty)` | Current duty cycle, range -1.0 to 1.0. |
+| `(get-rpm)` | Motor electrical RPM. |
+| `(get-rpm-fast)` | Faster RPM reading (less filtered). |
+| `(get-speed)` | Speed in m/s (requires `si-motor-poles`, `si-gear-ratio`, `si-wheel-diameter` to be configured). |
+| `(get-current)` | Motor current in A. |
+| `(get-current-in)` | Input current in A. |
+| `(get-current-dir)` | Directional current. Positive = forward torque. |
+| `(get-id)` | FOC d-axis current. |
+| `(get-iq)` | FOC q-axis current. |
+| `(get-temp-fet)` | MOSFET temperature in °C. |
+| `(get-temp-mot)` | Motor temperature in °C. |
+| `(get-vin)` | Input voltage in V. |
+| `(get-batt)` | Battery charge level, range 0.0 to 1.0. |
+| `(get-fault)` | Current fault code as a symbol. |
+| `(get-ah)` | Amp-hours consumed since boot. |
+| `(get-wh)` | Watt-hours consumed since boot. |
+| `(get-dist)` | Distance traveled in meters. |
+| `(get-pos)` | Encoder position in degrees. |
+
+## Configuration
+
+`conf-get` and `conf-set` read and write motor and application configuration parameters. Parameters are identified by quoted symbols.
+
+```clojure
+; Read configuration values
+(conf-get 'l-current-max)      ; maximum motor current limit (A)
+(conf-get 'l-current-min)      ; minimum motor current limit (A)
+(conf-get 'l-max-erpm)         ; maximum electrical RPM
+(conf-get 'l-min-erpm)         ; minimum electrical RPM
+(conf-get 'l-max-duty)         ; maximum duty cycle
+(conf-get 'l-min-duty)         ; minimum duty cycle
+(conf-get 'l-max-vin)          ; maximum input voltage
+(conf-get 'l-watt-max)         ; maximum power output (W)
+(conf-get 'si-motor-poles)     ; number of motor poles
+(conf-get 'si-gear-ratio)      ; gear ratio
+(conf-get 'si-wheel-diameter)  ; wheel diameter in meters
+(conf-get 'controller-id)      ; CAN controller ID of this VESC
+(conf-get 'motor-type)         ; motor type symbol
+(conf-get 'foc-sensor-mode)    ; FOC sensor mode
+
+; Write a configuration value (does not persist across reboots without conf-store)
+(conf-set 'l-current-max 40.0)
+
+; Persist configuration to flash
+(conf-store)
+```
+
+<Warning>
+  Calling `conf-store` writes to flash memory. Avoid calling it in a tight loop — flash has a limited write cycle lifetime.
+</Warning>
+
+## CAN bus
+
+LispBM provides both low-level frame I/O and high-level VESC protocol commands over CAN.
+
+### Low-level CAN frames
+
+```clojure
+; Send a standard (11-bit) CAN frame with ID 0x123 and payload [1 2 3 4]
+(can-send-sid 0x123 (list 1 2 3 4))
+
+; Send an extended (29-bit) CAN frame
+(can-send-eid 0x12345678 (list 0xDE 0xAD))
+
+; Receive a standard CAN frame (blocks for up to 1 second)
+(define frame (can-recv-sid 0x123 1.0))
+
+; Receive an extended CAN frame
+(define frame (can-recv-eid 0x12345678 1.0))
+```
+
+### VESC protocol over CAN
+
+`can-cmd` sends a LispBM expression to another VESC on the CAN bus and returns the result:
+
+```clojure
+; Read RPM from VESC with CAN ID 2
+(can-cmd 2 '(get-rpm))
+
+; Set duty cycle on VESC with CAN ID 3
+(can-cmd 3 '(set-duty 0.3))
+
+; List all VESC devices visible on the CAN bus
+(can-list-devs)
+```
+
+### CAN message events
+
+Enable CAN event processing to receive frames asynchronously:
+
+```clojure
+(event-enable 'event-can-sid)   ; enable standard frame events
+(event-enable 'event-can-eid)   ; enable extended frame events
+
+; In a recv loop, match on event type:
+(define evt (recv))
+(match evt
+  ((event-can-sid id data) (handle-sid id data))
+  ((event-can-eid id data) (handle-eid id data)))
+```
+
+## IMU and sensors
+
+| Function | Returns |
+|---|---|
+| `(get-imu-rpy)` | Roll, pitch, yaw in radians as a list `(r p y)`. |
+| `(get-imu-quat)` | Quaternion `(q0 q1 q2 q3)`. |
+| `(get-imu-acc)` | Acceleration `(x y z)` in G. |
+| `(get-imu-gyro)` | Angular rate `(x y z)` in deg/s. |
+| `(get-imu-mag)` | Magnetic field `(x y z)` in µT (if magnetometer present). |
+| `(get-imu-acc-derot)` | Acceleration derotated to horizon frame. |
+| `(get-imu-gyro-derot)` | Angular rate derotated to horizon frame. |
+| `(get-adc ch)` | Raw ADC voltage on channel 0–3. |
+| `(get-adc-decoded ch)` | Decoded ADC value mapped to 0–1 per app configuration. |
+| `(get-ppm)` | Decoded PPM input, range -1.0 to 1.0. |
+| `(get-encoder)` | Encoder position in degrees. |
+| `(get-encoder-error-rate)` | Encoder error rate as a fraction. |
+
+```clojure
+; Read roll angle
+(ix (get-imu-rpy) 0)
+
+; Read pitch angle
+(ix (get-imu-rpy) 1)
+
+; Read accelerometer X axis
+(ix (get-imu-acc) 0)
+```
+
+## GPIO
+
+```clojure
+; Configure a pin as output
+(gpio-configure 'pin-rx 'pin-mode-out)
+
+; Set pin high
+(gpio-write 'pin-rx 1)
+
+; Set pin low
+(gpio-write 'pin-rx 0)
+
+; Configure a pin as input with pull-up and read it
+(gpio-configure 'pin-tx 'pin-mode-in-pu)
+(gpio-read 'pin-tx)
+```
+
+Available pin symbols: `pin-rx`, `pin-tx`, `pin-swdio`, `pin-swclk`, `pin-hall1`, `pin-hall2`, `pin-hall3`, `pin-adc1`, `pin-adc2`, `pin-ppm`.
+
+Pin mode symbols: `pin-mode-out`, `pin-mode-od`, `pin-mode-in`, `pin-mode-in-pu`, `pin-mode-in-pd`, `pin-mode-analog`.
+
+## AUX outputs
+
+```clojure
+(set-aux 1 1)   ; turn AUX1 on
+(set-aux 1 0)   ; turn AUX1 off
+(set-aux 2 1)   ; turn AUX2 on
+```
+
+<Note>
+  The AUX output mode must be set to **Unused** in Motor Settings → General → Advanced. Otherwise the firmware will override any value set from Lisp.
+</Note>
+
+## UART
+
+```clojure
+; Start UART at 115200 baud
+(uart-start 115200)
+
+; Write bytes
+(uart-write (list 0x01 0x02 0x03))
+
+; Read up to 32 bytes with a 0.1 s timeout
+(uart-read 32 0.1)
+
+; Stop UART
+(uart-stop)
+```
+
+## I2C
+
+```clojure
+; Start I2C
+(i2c-start 'rate-400k)
+
+; Write 2 bytes to device 0x68, then read 6 bytes
+(i2c-tx-rx 0x68 (list 0x3B) 6)
+```
+
+## EEPROM (persistent storage)
+
+Small amounts of data can be stored persistently across reboots:
+
+```clojure
+; Store a float at slot 0
+(eeprom-store-f 0 3.14)
+
+; Read a float from slot 0
+(eeprom-read-f 0)
+
+; Store an integer at slot 1
+(eeprom-store-i 1 42)
+
+; Read an integer from slot 1
+(eeprom-read-i 1)
+```
+
+## BMS interface
+
+```clojure
+(get-bms-val 'bms-v-tot)         ; total pack voltage
+(get-bms-val 'bms-soc)           ; state of charge (0.0 to 1.0)
+(get-bms-val 'bms-cell-num)      ; number of cells in series
+(get-bms-val 'bms-v-cell 2)      ; voltage of cell 3 (0-indexed)
+(get-bms-val 'bms-temp-cell-max) ; maximum cell temperature
+(get-bms-val 'bms-i-in-ic)       ; measured current (negative = charging)
+```
+
+## Statistics
+
+```clojure
+(stats 'stat-speed-avg)       ; average speed in m/s since boot
+(stats 'stat-speed-max)       ; maximum speed in m/s
+(stats 'stat-power-avg)       ; average power in W
+(stats 'stat-power-max)       ; maximum power in W
+(stats 'stat-current-avg)     ; average current in A
+(stats 'stat-temp-mosfet-max) ; maximum MOSFET temperature in °C
+(stats-reset)                 ; reset all stat counters
+```
+
+## Plotting
+
+Send data to the VESC Tool plotter:
+
+```clojure
+(plot-init "RPM" "Current")
+(plot-add-graph "Motor RPM")
+(plot-add-graph "Motor Current")
+(plot-set-graph 0)
+(plot-send-points (get-rpm) (get-current))
+```

@@ -1,97 +1,84 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "VESC Firmware"
+description: "Open source motor controller firmware for BLDC, FOC, and DC motors running on STM32-based VESC hardware."
 ---
 
-## Setting up
-
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build and flash your first VESC firmware in minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Supported Hardware" icon="microchip" href="/supported-hardware">
+    See all supported VESC boards and hardware variants.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Motor Control" icon="bolt" href="/motor-control/overview">
+    FOC, BLDC, and DC motor control modes explained.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="LispBM Scripting" icon="code" href="/lispbm/introduction">
+    Write custom Lisp scripts that run directly on the VESC.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What is VESC Firmware?
 
-Everything you need to create world-class documentation.
+VESC Firmware (`vedderb/bldc`) is the open source firmware powering the VESC motor controller family. Originally designed for electric skateboards, it now drives robots, e-bikes, electric vehicles, CNC systems, and countless other motor-driven applications.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+The firmware runs on STM32F4 microcontrollers and supports a wide range of motor types and control algorithms:
 
-## Need inspiration?
+- **FOC (Field Oriented Control)** — smooth, efficient sinusoidal control with sensorless, Hall sensor, and encoder feedback
+- **BLDC** — trapezoidal commutation for high-speed, lower-overhead control
+- **DC motor** — support for brushed DC motors
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Key features
+
+<CardGroup cols={3}>
+  <Card title="FOC Motor Control" icon="wave-sine">
+    Sensorless and sensored FOC with HFI startup assist, field weakening, and MTPA optimization.
+  </Card>
+  <Card title="CAN Bus Networking" icon="network-wired">
+    Connect multiple VESC devices over CAN bus for coordinated multi-motor control.
+  </Card>
+  <Card title="LispBM Scripting" icon="brackets-curly">
+    Run sandboxed Lisp programs on the VESC itself for custom control logic.
+  </Card>
+  <Card title="Multiple Encoders" icon="rotate">
+    ABI, AS504x, SinCos, BiSSC, PWM, MA782, and more encoder types supported.
+  </Card>
+  <Card title="IMU Support" icon="compass">
+    Integrated IMU support for BMI160, ICM20948, LSM6DS3, and MPU9150.
+  </Card>
+  <Card title="Broad Hardware Support" icon="server">
+    Trampa, FlipSky, MakerX, Ubox, Luna, StormCore, and many more boards.
+  </Card>
+  <Card title="Input Applications" icon="gamepad">
+    PPM, ADC, UART, Nunchuk, PAS, and custom application support.
+  </Card>
+  <Card title="USB & UART Comms" icon="usb">
+    Full VESC protocol over USB and UART for integration with VESC Tool.
+  </Card>
+  <Card title="Open Source" icon="code-branch">
+    GPLv3 licensed. Community-driven development with hundreds of contributors.
+  </Card>
+</CardGroup>
+
+## Getting started
+
+<Steps>
+  <Step title="Check your hardware">
+    Identify your VESC board variant. Run `make` in the source directory to see all supported targets.
+  </Step>
+  <Step title="Install prerequisites">
+    Install `git`, `make`, and optionally the ARM SDK by running `make arm_sdk_install`.
+  </Step>
+  <Step title="Build the firmware">
+    Run `make <target>` — for example `make 100_250` for the VESC 100/250.
+  </Step>
+  <Step title="Flash to your VESC">
+    Upload via VESC Tool (USB) or flash directly using an SWD debugger with `make <target>_flash`.
+  </Step>
+</Steps>
+
+## Community
+
+- [VESC Project Forum](https://vesc-project.com/forum) — get help and share builds
+- [Discord Server](https://discord.gg/JgvV5NwYts) — real-time chat and support
+- [GitHub Repository](https://github.com/vedderb/bldc) — source code and issue tracker

@@ -1,0 +1,192 @@
+---
+title: "BMS integration"
+description: "How VESC firmware integrates with a Battery Management System (BMS) over CAN bus, including data types, configuration, and current limiting."
+keywords: ["BMS", "battery management", "HW_TYPE_VESC_BMS", "bms_values", "bms_config", "CAN bus"]
+---
+
+VESC firmware includes a BMS module (`bms.c` / `bms.h`) that receives battery state data from a BMS over CAN bus and uses it to dynamically limit motor current. The module is designed around the VESC BMS but is intentionally extensible to other BMS types.
+
+## Hardware type
+
+Boards that run VESC firmware as a BMS (rather than as a motor controller) declare `HW_TYPE_VESC_BMS` in `datatypes.h`:
+
+```c
+typedef enum {
+    HW_TYPE_VESC = 0,
+    HW_TYPE_VESC_BMS,
+    HW_TYPE_CUSTOM_MODULE
+} HW_TYPE;
+```
+
+A motor controller board that communicates with a separate BMS over CAN uses `HW_TYPE_VESC` and enables BMS support through the `bms_config` structure in its application configuration.
+
+## BMS types
+
+The supported BMS types are listed in the `BMS_TYPE` enum:
+
+```c
+typedef enum {
+    BMS_TYPE_NONE = 0,
+    BMS_TYPE_VESC
+} BMS_TYPE;
+```
+
+To add support for a different BMS, add a new value to `BMS_TYPE` and update `bms_process_can_frame()` in `bms.c` to decode its CAN messages.
+
+## Configuration
+
+BMS behavior is controlled by the `bms_config` structure, which is part of the application configuration (`app_configuration.bms` in `datatypes.h`):
+
+```c
+typedef struct {
+    BMS_TYPE         type;              // BMS_TYPE_NONE or BMS_TYPE_VESC
+    uint8_t          limit_mode;        // Bitmask: which limits to apply
+    float            t_limit_start;     // Temperature at which derating begins (°C)
+    float            t_limit_end;       // Temperature at which current = 0 (°C)
+    float            soc_limit_start;   // SOC below which derating begins (0.0–1.0)
+    float            soc_limit_end;     // SOC at which current = 0
+    float            vmin_limit_start;  // Cell voltage below which derating begins (V)
+    float            vmin_limit_end;    // Cell voltage at which current = 0 (V)
+    float            vmax_limit_start;  // Cell voltage above which charge derating begins (V)
+    float            vmax_limit_end;    // Cell voltage at which charge current = 0 (V)
+    BMS_FWD_CAN_MODE fwd_can_mode;      // Whether to forward BMS CAN frames
+} bms_config;
+```
+
+### CAN forwarding mode
+
+`fwd_can_mode` controls whether the VESC forwards raw BMS CAN frames to a connected host:
+
+```c
+typedef enum {
+    BMS_FWD_CAN_MODE_DISABLED = 0,  // Do not forward
+    BMS_FWD_CAN_MODE_USB_ONLY,      // Forward only to USB
+    BMS_FWD_CAN_MODE_ANY            // Forward to all connected interfaces
+} BMS_FWD_CAN_MODE;
+```
+
+## BMS values
+
+The BMS module maintains a `bms_values` structure populated from incoming CAN frames. Retrieve it with `bms_get_values()`:
+
+```c
+typedef struct {
+    float   v_tot;               // Total pack voltage (V)
+    float   v_charge;            // Charger port voltage (V)
+    float   i_in;                // Pack current, positive = discharge (A)
+    float   i_in_ic;             // IC-measured current (A)
+    float   ah_cnt;              // Ah counter (Ah)
+    float   wh_cnt;              // Wh counter (Wh)
+    int     cell_num;            // Number of cells
+    float   v_cell[50];          // Per-cell voltage (V)
+    bool    bal_state[50];       // Per-cell balancing state
+    int     temp_adc_num;        // Number of temperature sensors
+    float   temps_adc[50];       // ADC temperature readings (°C)
+    float   temp_ic;             // BMS IC temperature (°C)
+    float   temp_hum;            // Humidity sensor temperature (°C)
+    float   pressure;            // Atmospheric pressure
+    float   hum;                 // Relative humidity
+    float   temp_max_cell;       // Maximum cell temperature (°C)
+    float   v_cell_min;          // Minimum cell voltage (V)
+    float   v_cell_max;          // Maximum cell voltage (V)
+    float   soc;                 // State of charge (0.0–1.0)
+    float   soh;                 // State of health (0.0–1.0)
+    int     can_id;              // CAN ID of the BMS that last updated values
+    float   ah_cnt_chg_total;    // Lifetime charge Ah
+    float   wh_cnt_chg_total;    // Lifetime charge Wh
+    float   ah_cnt_dis_total;    // Lifetime discharge Ah
+    float   wh_cnt_dis_total;    // Lifetime discharge Wh
+    int     is_charging;         // Non-zero when charging
+    int     is_balancing;        // Non-zero when cell balancing is active
+    int     is_charge_allowed;   // Non-zero when charging is permitted
+    int     data_version;        // Protocol data version
+    char    status[41];          // Human-readable status string
+    systime_t update_time;       // Timestamp of last update
+} bms_values;
+```
+
+Constants `BMS_MAX_CELLS` and `BMS_MAX_TEMPS` cap the array sizes at 50 entries each.
+
+## CAN packet types
+
+The VESC BMS communicates over extended-frame CAN. `bms_process_can_frame()` handles the following packet IDs:
+
+| CAN packet | Contents |
+|---|---|
+| `CAN_PACKET_BMS_SOC_SOH_TEMP_STAT` | SOC, SOH, max cell temperature, min/max cell voltage, status flags |
+| `CAN_PACKET_BMS_V_TOT` | Total pack voltage and charger voltage |
+| `CAN_PACKET_BMS_I` | Pack current and IC current |
+| `CAN_PACKET_BMS_AH_WH` | Ah and Wh counters |
+| `CAN_PACKET_BMS_V_CELL` | Per-cell voltages |
+| `CAN_PACKET_BMS_BAL` | Per-cell balancing state |
+| `CAN_PACKET_BMS_TEMPS` | Temperature sensor array |
+| `CAN_PACKET_BMS_HUM` | Humidity and pressure data |
+
+Each frame is identified by its upper bits; the lower 8 bits carry the BMS CAN node ID. If more than one VESC BMS is on the bus, the module tracks whichever BMS last updated values within the `MAX_CAN_AGE_SEC` window (2 seconds):
+
+```c
+// bms.c
+#define MAX_CAN_AGE_SEC  2.0
+
+if (id == m_values.can_id || UTILS_AGE_S(m_values.update_time) > MAX_CAN_AGE_SEC) {
+    m_values.can_id = id;
+    m_values.update_time = chVTGetSystemTimeX();
+    // ... update values ...
+}
+```
+
+## Per-BMS statistics
+
+For multi-BMS setups the module also tracks per-node statistics using `bms_soc_soh_temp_stat`:
+
+```c
+typedef struct {
+    int        id;               // BMS CAN node ID
+    systime_t  rx_time;          // Time of last received frame
+    float      v_cell_min;       // Minimum cell voltage on this BMS
+    float      v_cell_max;       // Maximum cell voltage on this BMS
+    float      t_cell_max;       // Maximum cell temperature on this BMS
+    float      soc;              // State of charge
+    float      soh;              // State of health
+    bool       is_charging;
+    bool       is_balancing;
+    bool       is_charge_allowed;
+    int        data_version;
+} bms_soc_soh_temp_stat;
+```
+
+The module keeps separate statistics for: highest temperature BMS, lowest SOC BMS, highest SOC BMS, lowest cell voltage BMS, and highest cell voltage BMS.
+
+## Current limiting
+
+`bms_update_limits()` adjusts the motor controller's input current limits based on live BMS data. Call it from the current-limiting code path, passing the configured min/max current values:
+
+```c
+void bms_update_limits(
+    float *i_in_min,
+    float *i_in_max,
+    float i_in_min_conf,
+    float i_in_max_conf
+);
+```
+
+The function scales current linearly between the `*_start` and `*_end` thresholds defined in `bms_config`. Any of the following conditions can trigger derating:
+
+- Cell temperature above `t_limit_start`
+- SOC below `soc_limit_start`
+- Minimum cell voltage below `vmin_limit_start`
+- Maximum cell voltage above `vmax_limit_start` (charge current only)
+
+## Initialization
+
+Call `bms_init()` once at startup, passing a pointer to the BMS configuration from the application config:
+
+```c
+bms_init(&app_conf.bms);
+```
+
+This zeros all internal state and sets `can_id` to `-1`, indicating no BMS has been seen yet.
+
+## CAN status broadcast
+
+Call `bms_send_status_can()` periodically to broadcast the current BMS values to other nodes on the CAN bus. This is used when the VESC itself acts as a CAN-to-USB bridge for the BMS.

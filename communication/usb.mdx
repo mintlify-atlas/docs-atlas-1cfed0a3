@@ -1,0 +1,72 @@
+---
+title: 'USB'
+description: 'USB CDC serial communication in VESC firmware and how VESC Tool connects over USB.'
+keywords: ['USB', 'CDC', 'serial', 'VESC Tool', 'comm_usb']
+---
+
+The VESC firmware exposes a USB CDC (Communications Device Class) serial interface. This lets a host computer communicate with the VESC using the same serial packet protocol used over UART, without any additional drivers on most operating systems.
+
+## How it works
+
+When you plug a VESC into a computer via USB, it enumerates as a virtual serial port (CDC ACM device). The operating system assigns it a port name such as `/dev/ttyACM0` on Linux, `/dev/cu.usbmodem*` on macOS, or `COMx` on Windows.
+
+VESC Tool detects this port and connects to it automatically. All configuration, motor control, real-time data display, and firmware updates flow through this interface.
+
+The USB interface is implemented in `comm/comm_usb.c` and exposes the following API:
+
+```c
+// Initialize the USB CDC interface
+void comm_usb_init(void);
+
+// Send a framed packet over USB
+void comm_usb_send_packet(unsigned char *data, unsigned int len);
+
+// Returns the number of write timeouts that have occurred
+unsigned int comm_usb_get_write_timeout_cnt(void);
+```
+
+## Connecting with VESC Tool
+
+<Steps>
+  <Step title="Connect the VESC via USB">
+    Plug the VESC into your computer using a USB cable. The device should enumerate as a virtual serial port.
+  </Step>
+  <Step title="Open VESC Tool">
+    Launch VESC Tool. It will scan for connected devices and list available serial ports.
+  </Step>
+  <Step title="Select the port and connect">
+    Choose the port that corresponds to your VESC and click **Connect**. VESC Tool will read the firmware version and device configuration automatically.
+  </Step>
+</Steps>
+
+## Connection settings
+
+Because USB CDC is a virtual serial port, there is no physical baud rate — data is transferred at USB full-speed (12 Mbit/s). Any baud rate selected in a serial terminal application is ignored by the device.
+
+<Note>
+  If you are connecting with a generic serial terminal instead of VESC Tool, you still need to select a baud rate in your terminal application. The value does not affect communication speed, but `115200` is a conventional default.
+</Note>
+
+## Protocol over USB
+
+The VESC USB interface uses the same framed serial protocol as UART. Bytes received from the host are fed through the packet layer (`comm/packet.c`), which handles framing, length, and CRC validation before passing complete packets to `commands_process_packet`.
+
+See the [UART protocol](/communication/uart-protocol) page for the full packet format and command reference.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Device not recognized / no port appears">
+    - On Linux, ensure your user is in the `dialout` group: `sudo usermod -aG dialout $USER` (requires re-login).
+    - On Windows, install the STM32 Virtual COM Port driver if the device does not enumerate automatically.
+    - Try a different USB cable — some cables are power-only and carry no data.
+  </Accordion>
+  <Accordion title="VESC Tool fails to connect">
+    - Verify no other application (e.g., a serial terminal) is holding the port open.
+    - Disconnect and reconnect the USB cable, then try again.
+    - Check **App Settings -> General -> CAN Mode** is not set to a mode that interferes with USB communication.
+  </Accordion>
+  <Accordion title="Write timeouts (comm_usb_get_write_timeout_cnt)">
+    A non-zero write timeout count indicates the host is not reading data fast enough. This can happen if VESC Tool is paused or closed while the firmware is actively sending data. Reconnecting clears the condition.
+  </Accordion>
+</AccordionGroup>

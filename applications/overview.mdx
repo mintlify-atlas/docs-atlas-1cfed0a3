@@ -1,0 +1,98 @@
+---
+title: "Applications overview"
+description: "How VESC applications map input signals to motor control commands."
+keywords: ["vesc", "applications", "ppm", "adc", "uart", "nunchuk", "pas", "custom"]
+---
+
+A VESC **application** is the firmware layer that receives input signals — from an RC receiver, an analog throttle, a serial controller, or a sensor — and translates them into motor control commands. Only one application runs at a time. You select which one to activate in VESC Tool under **App Settings → General → App to use**.
+
+## Available application types
+
+The `app_use` enum in `datatypes.h` defines every application the firmware recognises:
+
+```c
+typedef enum {
+    APP_NONE = 0,
+    APP_PPM,
+    APP_ADC,
+    APP_UART,
+    APP_PPM_UART,
+    APP_ADC_UART,
+    APP_NUNCHUK,
+    APP_NRF,
+    APP_CUSTOM,
+    APP_PAS,
+    APP_ADC_PAS
+} app_use;
+```
+
+| Value | Description |
+|---|---|
+| `APP_NONE` | No application. Motor sits idle. |
+| `APP_PPM` | RC-style pulse-width signal (servo/RC receiver). |
+| `APP_ADC` | Analog voltage throttle or brake. |
+| `APP_UART` | External controller over serial UART. |
+| `APP_PPM_UART` | PPM input with UART active simultaneously. |
+| `APP_ADC_UART` | ADC input with UART active simultaneously. |
+| `APP_NUNCHUK` | Wii Nunchuk over I2C. |
+| `APP_NRF` | Nordic nRF wireless receiver. |
+| `APP_CUSTOM` | User-defined custom application. |
+| `APP_PAS` | Pedal Assist System for e-bikes. |
+| `APP_ADC_PAS` | ADC throttle combined with PAS sensor. |
+
+<Note>
+The firmware default is `APP_UART` so the UART port remains available for firmware updates. Change this after your hardware is configured.
+</Note>
+
+## Selecting an application in VESC Tool
+
+<Steps>
+  <Step title="Open App Settings">
+    Connect to your VESC in VESC Tool, then navigate to **App Settings** in the left sidebar.
+  </Step>
+  <Step title="Choose the application">
+    Under the **General** tab, find the **App to use** dropdown and select the application that matches your input hardware.
+  </Step>
+  <Step title="Configure app-specific parameters">
+    Each application has its own configuration tab (PPM, ADC, UART, Nunchuk, PAS). Fill in the values for your hardware.
+  </Step>
+  <Step title="Write configuration">
+    Click **Write App Configuration** to save the settings to the VESC.
+  </Step>
+</Steps>
+
+## Application pages
+
+<Columns cols={2}>
+  <Card title="PPM" icon="signal" href="/applications/ppm">
+    RC receiver pulse-width input for ESC-style throttle control.
+  </Card>
+  <Card title="ADC" icon="sliders" href="/applications/adc">
+    Analog voltage throttle and brake via the ADC inputs.
+  </Card>
+  <Card title="UART" icon="terminal" href="/applications/uart">
+    Serial communication with external controllers using the VESC protocol.
+  </Card>
+  <Card title="Nunchuk" icon="gamepad-2" href="/applications/nunchuk">
+    Wii Nunchuk joystick and button control over I2C.
+  </Card>
+  <Card title="PAS" icon="bike" href="/applications/pas">
+    Pedal assist for e-bikes based on cadence or torque sensing.
+  </Card>
+  <Card title="Custom" icon="code" href="/applications/custom">
+    Write your own application logic directly in firmware C code.
+  </Card>
+</Columns>
+
+## Runtime API
+
+Applications are managed through `app.h`. The key functions are:
+
+```c
+const app_configuration *app_get_configuration(void);
+void app_set_configuration(app_configuration *conf);
+void app_disable_output(int time_ms);
+bool app_is_output_disabled(void);
+```
+
+`app_disable_output` suppresses motor output for the specified number of milliseconds without stopping the application thread — useful during fault recovery or startup sequencing.

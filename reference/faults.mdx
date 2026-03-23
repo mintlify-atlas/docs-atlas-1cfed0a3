@@ -1,0 +1,340 @@
+---
+title: 'Fault codes'
+description: 'Reference for all mc_fault_code values, what triggers each fault, and how to resolve them.'
+keywords: ['fault', 'error', 'overvoltage', 'undervoltage', 'overcurrent', 'temperature', 'encoder', 'DRV']
+---
+
+The VESC firmware defines fault codes in the `mc_fault_code` enum in `datatypes.h`. When a fault occurs the motor is stopped and the fault is latched until the controller is restarted or the fault is cleared. Fault data (current, voltage, duty cycle, RPM, temperature, and DRV status) is logged alongside the fault code.
+
+<Note>
+You can read the active fault code over any communication interface using `COMM_GET_VALUES` or via the VESC Tool real-time data view.
+</Note>
+
+## Fault categories
+
+<AccordionGroup>
+
+  <Accordion title="FAULT_CODE_NONE (0)">
+    **No fault is active.**
+
+    The system is operating normally. This is the default state on boot and after a fault is cleared.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_OVER_VOLTAGE (1)">
+    **Input voltage exceeded `l_max_vin`.**
+
+    Triggered when the measured DC bus voltage rises above the configured maximum (default **57 V**). This commonly happens during aggressive regenerative braking when the battery cannot absorb the returned energy.
+
+    **Resolution:**
+    - Increase `l_max_vin` if the hardware supports higher voltages.
+    - Add a braking resistor or increase battery capacity to absorb regen energy.
+    - Reduce braking current limits (`l_current_min`).
+    - Check for a loose or high-impedance battery connection that causes voltage spikes.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_UNDER_VOLTAGE (2)">
+    **Input voltage fell below `l_min_vin`.**
+
+    Triggered when the DC bus voltage drops below the configured minimum (default **8 V**). Causes include a discharged battery, an undersized supply, or large instantaneous current demand.
+
+    **Resolution:**
+    - Charge or replace the battery.
+    - Check wiring and connector resistance — voltage sag under load increases with resistance.
+    - Reduce peak current demands (`l_current_max`, `l_in_current_max`).
+    - Verify battery cut limits (`l_battery_cut_start`, `l_battery_cut_end`) are set appropriately.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_DRV (3)">
+    **Gate driver (DRV8301/DRV8320/DRV8323) reported a fault.**
+
+    The gate driver IC has its own over-current, over-temperature, and under-voltage lockout protection. When any of those internal thresholds are violated the DRV asserts its FAULT pin and the firmware logs the DRV fault register contents alongside this fault code.
+
+    **Resolution:**
+    - Read `drv8301_faults` from the logged fault data to identify the specific DRV sub-fault.
+    - Check that the gate driver VCC supply is present and stable.
+    - If the DRV is in over-current mode, check motor wiring for shorts and adjust `m_drv8301_oc_adj`.
+    - Allow the hardware to cool if the fault is thermally driven.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_ABS_OVER_CURRENT (4)">
+    **Phase current exceeded `l_abs_current_max`.**
+
+    This is a hard absolute current limit (default **130 A**) checked against the unfiltered phase current. It fires faster than the software current limiting loop and is intended to protect the hardware from destructive current peaks.
+
+    **Resolution:**
+    - Lower `l_abs_current_max` to a value within the hardware rating.
+    - Reduce `l_current_max` so the operating current is well below the absolute limit.
+    - Check for motor phase shorts or incorrect motor parameters (resistance/inductance) that cause current runaway.
+    - If using FOC, verify the current controller gains (`foc_current_kp`, `foc_current_ki`) are not too aggressive.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_OVER_TEMP_FET (5)">
+    **MOSFET temperature exceeded `l_temp_fet_end`.**
+
+    Current limiting begins at `l_temp_fet_start` (default **85 °C**) and the motor is shut off at `l_temp_fet_end` (default **100 °C**).
+
+    **Resolution:**
+    - Improve thermal management: heatsink, airflow, or thermal paste.
+    - Reduce continuous current limits.
+    - Check that the temperature sensor is correctly placed and calibrated.
+    - Verify `l_temp_fet_start` and `l_temp_fet_end` are set to values the hardware can sustain.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_OVER_TEMP_MOTOR (6)">
+    **Motor temperature exceeded `l_temp_motor_end`.**
+
+    Current limiting begins at `l_temp_motor_start` (default **85 °C**) and the motor is shut off at `l_temp_motor_end` (default **100 °C**). Requires a temperature sensor connected to the motor thermistor input.
+
+    **Resolution:**
+    - Reduce continuous current or duty cycle.
+    - Improve motor cooling.
+    - Verify the correct sensor type is configured (`m_motor_temp_sens_type`) and the sensor is functional.
+    - If no motor sensor is fitted, disable the motor temperature protection by setting the sensor type to `TEMP_SENSOR_DISABLED`.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_GATE_DRIVER_OVER_VOLTAGE (7)">
+    **Gate driver bootstrap supply voltage is too high.**
+
+    The gate driver GVDD supply exceeded its upper limit. This can indicate a hardware fault on the bootstrap circuitry or an excessively high bus voltage stressing the gate driver.
+
+    **Resolution:**
+    - Check the gate driver power supply components for damage.
+    - Verify the input voltage is within the hardware specification.
+    - Inspect bootstrap capacitors and diodes.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_GATE_DRIVER_UNDER_VOLTAGE (8)">
+    **Gate driver bootstrap supply voltage is too low.**
+
+    The GVDD supply is insufficient to properly drive the high-side MOSFETs. This can cause shoot-through or failed switching.
+
+    **Resolution:**
+    - Check that the gate driver VCC supply is present and within specification.
+    - Inspect bootstrap capacitors — they may be damaged or incorrectly sized.
+    - Verify PWM frequency is not so high that bootstrap capacitors cannot charge between cycles.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_MCU_UNDER_VOLTAGE (9)">
+    **MCU supply voltage (3.3 V) is too low.**
+
+    The STM32 internal ADC reference indicated that the 3.3 V rail is below an acceptable threshold. This can cause unreliable ADC readings and erratic behavior.
+
+    **Resolution:**
+    - Check the 3.3 V regulator and its input supply.
+    - Inspect for short circuits on the 3.3 V rail.
+    - Check for excessive current draw on the 3.3 V rail from connected peripherals.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_BOOTING_FROM_WATCHDOG_RESET (10)">
+    **The MCU rebooted due to a watchdog timer reset.**
+
+    The firmware failed to pet the watchdog within the timeout period, indicating a software hang or deadlock.
+
+    **Resolution:**
+    - This fault is informational on boot — it clears once normal operation resumes.
+    - If it occurs repeatedly, check for LispBM scripts or custom applications that may be blocking execution.
+    - Update to the latest firmware, as watchdog resets are often caused by bugs in older releases.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_ENCODER_SPI (11)">
+    **SPI encoder communication failure.**
+
+    The SPI-based encoder (e.g. AS5047, MT6816, MA782) did not respond correctly or returned invalid data. This includes framing errors, parity errors, and zero-value responses.
+
+    **Resolution:**
+    - Inspect the SPI wiring (MOSI, MISO, SCK, CS) for loose connections or shorts.
+    - Verify the encoder supply voltage.
+    - Check that the correct encoder type is selected in `m_sensor_port_mode`.
+    - Reduce SPI cable length or add series termination resistors to reduce reflections.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_ENCODER_SINCOS_BELOW_MIN_AMPLITUDE (12)">
+    **Sin/cos encoder signal amplitude is too low.**
+
+    The vector magnitude of the sin and cos signals from an analog sin/cos encoder fell below the minimum threshold, indicating a missing or weak encoder signal.
+
+    **Resolution:**
+    - Check encoder power supply and signal wiring.
+    - Verify `m_encoder_sin_amp`, `m_encoder_sin_offset`, `m_encoder_cos_amp`, and `m_encoder_cos_offset` match the encoder's actual output.
+    - Check for shielding on signal cables to reduce noise.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_ENCODER_SINCOS_ABOVE_MAX_AMPLITUDE (13)">
+    **Sin/cos encoder signal amplitude is too high.**
+
+    The vector magnitude exceeded the maximum threshold. This typically indicates incorrect amplitude calibration or a fault in the analog signal conditioning.
+
+    **Resolution:**
+    - Re-run the sin/cos encoder calibration.
+    - Verify the signal conditioning resistor dividers match the expected voltage range.
+    - Inspect for noise coupling that creates false peaks.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_FLASH_CORRUPTION (14)">
+    **General flash memory corruption detected.**
+
+    The CRC of a flash region did not match the stored CRC. This can happen after an incomplete firmware update, a power loss during a flash write, or flash wear.
+
+    **Resolution:**
+    - Re-flash the firmware using VESC Tool or ST-Link.
+    - Ensure the power supply is stable during firmware updates.
+    - If the fault persists after re-flashing, the flash memory may be damaged.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_HIGH_OFFSET_CURRENT_SENSOR_1 (15) / _2 (16) / _3 (17)">
+    **Current sensor DC offset is outside the acceptable range.**
+
+    Each phase current sensor (sensors 1, 2, and 3) has an ADC mid-point that should sit near 2048 counts (half-scale) at zero current. If the measured offset deviates too far, accurate current measurement is not possible.
+
+    **Resolution:**
+    - Run the DC calibration routine from VESC Tool (`conf-dc-cal` in LispBM or the motor setup wizard).
+    - Check the current sense amplifier supply voltage.
+    - Inspect for damaged current shunt resistors or op-amps.
+    - Verify `foc_offsets_current[0/1/2]` are set correctly — default is **2048.0** for all three.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_UNBALANCED_CURRENTS (18)">
+    **The sum of phase currents is not near zero.**
+
+    In a three-phase system the phase currents must sum to zero by Kirchhoff's current law. A significant imbalance indicates a sensor failure, a wiring fault, or a damaged phase.
+
+    **Resolution:**
+    - Check all three phase connections for continuity.
+    - Re-run DC calibration to re-zero the current sensor offsets.
+    - Inspect motor windings for shorts or open circuits between phases.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_BRK (19)">
+    **Hardware brake input was asserted.**
+
+    The BRK input to the timer peripheral was activated, immediately disabling PWM outputs. This is a hardware-level fast brake signal, typically connected to gate driver fault outputs.
+
+    **Resolution:**
+    - Identify the source of the BRK signal — check gate driver FAULT pin state.
+    - Review the gate driver fault register via `FAULT_CODE_DRV` if that fault is also present.
+    - Inspect hardware connections to the timer BRK input.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_RESOLVER_LOT (20) / _DOS (21) / _LOS (22)">
+    **Resolver fault: loss of tracking / degraded output signal / loss of signal.**
+
+    These three faults correspond to the three fault outputs of the AD2S1205 resolver-to-digital converter:
+
+    | Code | AD2S1205 Output | Meaning |
+    |------|-----------------|---------|
+    | `RESOLVER_LOT` | LOT | Loss of tracking — the resolver is moving too fast for the converter to follow |
+    | `RESOLVER_DOS` | DOS | Degraded output signal — the resolver signal amplitude is too low |
+    | `RESOLVER_LOS` | LOS | Loss of signal — no resolver signal detected |
+
+    **Resolution:**
+    - Check resolver wiring (excitation output and sin/cos inputs).
+    - For LOT: reduce motor speed or increase the AD2S1205 bandwidth setting.
+    - For DOS/LOS: check the resolver supply voltage and signal cable integrity.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_FLASH_CORRUPTION_APP_CFG (23)">
+    **Application configuration flash region is corrupted.**
+
+    The CRC of the stored application configuration (`app_configuration`) did not match. The firmware falls back to default application settings.
+
+    **Resolution:**
+    - Save the application configuration from VESC Tool to rewrite a valid configuration to flash.
+    - If the fault recurs, verify power supply stability during saves.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_FLASH_CORRUPTION_MC_CFG (24)">
+    **Motor configuration flash region is corrupted.**
+
+    The CRC of the stored motor configuration (`mc_configuration`) did not match. The firmware falls back to default motor settings.
+
+    **Resolution:**
+    - Save the motor configuration from VESC Tool to rewrite a valid configuration.
+    - Run motor detection again to restore tuned parameters.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_ENCODER_NO_MAGNET (25)">
+    **Encoder magnet not detected.**
+
+    Encoders such as the AS5047 can detect the presence and strength of the magnet. This fault fires when no magnet is detected at all.
+
+    **Resolution:**
+    - Verify the magnet is correctly installed on the motor shaft, centered over the encoder IC.
+    - Check the axial gap between the magnet and the encoder — it must be within the encoder's specified range.
+    - Ensure the magnet has not demagnetized (high temperature or shock can cause this).
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_ENCODER_MAGNET_TOO_STRONG (26)">
+    **Encoder magnet field is too strong.**
+
+    The encoder reports that the magnetic field exceeds its upper sensing limit. An excessively strong magnet saturates the sensor and degrades angular accuracy.
+
+    **Resolution:**
+    - Increase the axial gap between the magnet and the encoder IC.
+    - Use a weaker magnet with a field strength within the encoder's specification.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_PHASE_FILTER (27)">
+    **Phase voltage filter fault.**
+
+    The firmware uses hardware RC filters on the phase voltage inputs for improved commutation detection. This fault fires when the filtered and unfiltered phase voltage signals disagree beyond a threshold, suggesting the filter is not operating correctly.
+
+    <Note>
+    This fault is disabled by default via `foc_phase_filter_disable_fault = true`. Enable it only when the phase filter hardware is known to be functional.
+    </Note>
+
+    **Resolution:**
+    - Verify the phase voltage filter components (RC network) are present and correctly valued.
+    - If the hardware does not have phase filters, set `foc_phase_filter_enable = false`.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_ENCODER_FAULT (28)">
+    **Generic encoder fault.**
+
+    A catch-all fault for encoder error conditions that do not map to one of the more specific encoder fault codes. The encoder driver sets this when an internal error flag is asserted.
+
+    **Resolution:**
+    - Check encoder wiring and power supply.
+    - Consult the encoder's datasheet for the specific error condition.
+    - Inspect the logged `info_str` field in the fault data for additional detail.
+  </Accordion>
+
+  <Accordion title="FAULT_CODE_LV_OUTPUT_FAULT (29)">
+    **Low-voltage output fault.**
+
+    The hardware's low-voltage output (auxiliary power supply or switched output) has detected a fault condition, such as an over-current or short circuit on the LV output rail.
+
+    **Resolution:**
+    - Check for a short circuit or excessive load on the LV output.
+    - Verify the connected load is within the LV output current specification for the hardware variant.
+    - Inspect the power switch or MOSFET controlling the LV output.
+  </Accordion>
+
+</AccordionGroup>
+
+## Fault data fields
+
+When a fault is logged, the `fault_data` struct records context that helps diagnose the root cause:
+
+```c
+// From datatypes.h
+typedef struct {
+    uint8_t       motor;               // Motor index (1 or 2)
+    mc_fault_code fault;               // Fault code
+    float         current;             // Phase current at fault time (A)
+    float         current_filtered;    // Filtered phase current (A)
+    float         voltage;             // Input voltage at fault time (V)
+    float         gate_driver_voltage; // Gate driver supply voltage (V)
+    float         duty;                // Duty cycle at fault time
+    float         rpm;                 // Electrical RPM at fault time
+    int           tacho;               // Tachometer value
+    int           cycles_running;      // PWM cycles since last start
+    float         temperature;         // Temperature at fault time (°C)
+    int           drv8301_faults;      // Gate driver fault register
+    const char   *info_str;            // Optional description string
+    float         info_args[2];        // Optional numeric arguments
+} fault_data;
+```
+
+<Tip>
+Use VESC Tool's **Fault** tab or send `COMM_GET_VALUES` to retrieve the last recorded fault along with all diagnostic fields.
+</Tip>

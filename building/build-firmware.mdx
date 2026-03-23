@@ -1,0 +1,95 @@
+---
+title: 'Build firmware'
+description: 'Compile VESC firmware for your target hardware board.'
+---
+
+With [prerequisites](/building/prerequisites) in place, you are ready to build firmware.
+
+## List supported targets
+
+Running `make` with no arguments prints the full list of supported boards:
+
+```bash
+make
+```
+
+You will see output similar to:
+
+```
+   [Firmware]
+     fw   - Build firmware for default target
+                            supported boards are: 100_250 100_250_no_limits 100_500 ...
+     fw_<board>           - Build firmware for target <board>
+     PROJECT=<target> fw  - Build firmware for <target>
+     fw_<board>_clean     - Remove firmware for <board>
+     fw_<board>_flash     - Use OpenOCD + SWD/JTAG to write firmware to <target>
+```
+
+Identify the target name that matches your hardware. For example, a Trampa VESC 100/250 uses the target `100_250`.
+
+## Build for a specific target
+
+```bash
+make 100_250
+```
+
+Replace `100_250` with the name of your board from the supported boards list.
+
+### Build output
+
+Compiled firmware is placed in the `build/<target>/` directory:
+
+```
+build/
+└── 100_250/
+    ├── 100_250.bin
+    ├── 100_250.elf
+    └── ...
+```
+
+The `.bin` file is used for USB upload via VESC Tool. The `.elf` file is used when flashing with a SWD debugger.
+
+## Additional make targets
+
+| Target | Description |
+|---|---|
+| `make` | Print the help and supported board list |
+| `make <board>` | Build firmware for `<board>` |
+| `make <board>_flash` | Build and flash to `<board>` via SWD/JTAG |
+| `make <board>_clean` | Remove build artifacts for `<board>` |
+| `make all_fw` | Build firmware for all supported boards |
+| `make arm_sdk_install` | Install the ARM GCC toolchain |
+| `make qt_install` | Install Qt Creator IDE |
+
+<Tip>
+  Add `V=1` to any make command to see the full compiler invocation:
+
+  ```bash
+  make 100_250 V=1
+  ```
+</Tip>
+
+## Custom hardware
+
+To build firmware for a custom hardware configuration, supply the hardware source and header file paths directly:
+
+```bash
+make fw_custom HW_SRC=/path/to/hw_custom.c HW_HEADER=/path/to/hw_custom.h
+```
+
+Corresponding clean and flash targets are also available:
+
+```bash
+make fw_custom_clean
+make fw_custom_flash
+```
+
+## Build options in conf_general.h
+
+Additional compile-time options are available in [`conf_general.h`](https://github.com/vedderb/bldc/blob/master/conf_general.h). Notable options include:
+
+- `DISABLE_HW_LIMITS` — disables hardware-enforced limits on configuration parameters (commented out by default)
+- `USER_MC_CONF` — path to a custom motor controller configuration header
+- `USER_APP_CONF` — path to a custom application configuration header
+
+Uncomment or define these values before building to apply them.

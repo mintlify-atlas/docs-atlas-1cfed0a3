@@ -1,0 +1,133 @@
+---
+title: "ADC application"
+description: "Use analog voltage inputs to control the motor with a physical throttle or brake lever."
+keywords: ["vesc", "adc", "analog", "throttle", "brake", "voltage"]
+---
+
+The ADC application reads analog voltages from the COMM header's ADC1 and ADC2 pins and maps them to a motor output level. It is the standard choice for physical throttle and brake levers that output a voltage proportional to position.
+
+## Voltage range
+
+Default voltage mapping from `appconf_default.h`:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `voltage_start` | 0.9 V | Voltage at which throttle output begins. |
+| `voltage_end` | 3.0 V | Voltage at which throttle reaches maximum. |
+| `voltage_center` | 2.0 V | Center voltage for bidirectional control types. |
+| `voltage_min` | 0.0 V | Below this voltage the signal is treated as a fault. |
+| `voltage_max` | 3.5 V | Above this voltage the signal is treated as a fault. |
+| `voltage2_start` | 0.9 V | Start voltage for the second ADC channel (brake). |
+| `voltage2_end` | 3.0 V | End voltage for the second ADC channel (brake). |
+
+<Warning>
+If the measured voltage falls outside `voltage_min`–`voltage_max`, the application treats it as a disconnected sensor and cuts motor output. Ensure your sensor voltage never exceeds 3.3 V on standard VESC hardware.
+</Warning>
+
+## Control types
+
+```c
+typedef enum {
+    ADC_CTRL_TYPE_NONE = 0,
+    ADC_CTRL_TYPE_CURRENT,
+    ADC_CTRL_TYPE_CURRENT_REV_CENTER,
+    ADC_CTRL_TYPE_CURRENT_REV_BUTTON,
+    ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_ADC,
+    ADC_CTRL_TYPE_CURRENT_REV_BUTTON_BRAKE_CENTER,
+    ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_CENTER,
+    ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_BUTTON,
+    ADC_CTRL_TYPE_CURRENT_NOREV_BRAKE_ADC,
+    ADC_CTRL_TYPE_DUTY,
+    ADC_CTRL_TYPE_DUTY_REV_CENTER,
+    ADC_CTRL_TYPE_DUTY_REV_BUTTON,
+    ADC_CTRL_TYPE_PID,
+    ADC_CTRL_TYPE_PID_REV_CENTER,
+    ADC_CTRL_TYPE_PID_REV_BUTTON
+} adc_control_type;
+```
+
+| Suffix | Meaning |
+|---|---|
+| _(none)_ | Forward only, no brake. |
+| `REV_CENTER` | Reverse when ADC1 is below center voltage. |
+| `REV_BUTTON` | Reverse when a dedicated button is pressed. |
+| `BRAKE_ADC` | Braking current set by ADC2 voltage. |
+| `BRAKE_CENTER` | Braking when ADC1 is below center voltage. |
+| `BRAKE_BUTTON` | Braking when a dedicated button is pressed. |
+| `NOREV` | Forward-only mode regardless of input. |
+
+## Configuration struct
+
+```c
+typedef struct {
+    adc_control_type ctrl_type;
+    float hyst;
+    float voltage_start;
+    float voltage_end;
+    float voltage_min;
+    float voltage_max;
+    float voltage_center;
+    float voltage2_start;
+    float voltage2_end;
+    bool use_filter;
+    SAFE_START_MODE safe_start;
+    uint8_t buttons;
+    bool voltage_inverted;
+    bool voltage2_inverted;
+    float throttle_exp;
+    float throttle_exp_brake;
+    thr_exp_mode throttle_exp_mode;
+    float ramp_time_pos;
+    float ramp_time_neg;
+    bool multi_esc;
+    bool tc;
+    float tc_max_diff;
+    uint32_t update_rate_hz;
+} adc_config;
+```
+
+### Key parameters
+
+| Field | Default | Description |
+|---|---|---|
+| `hyst` | 0.15 | Deadband around center/off point (normalised). |
+| `use_filter` | `true` | Applies a moving-average filter over `FILTER_SAMPLES` (5) readings. |
+| `safe_start` | `SAFE_START_REGULAR` | Requires voltage to return to idle range before output is allowed. |
+| `update_rate_hz` | 500 Hz | ADC polling rate. |
+| `ramp_time_pos` | 0.3 s | Positive output ramp time. |
+| `ramp_time_neg` | 0.1 s | Negative output ramp time. |
+| `voltage_inverted` | `false` | Inverts ADC1 mapping (full voltage = idle). |
+| `voltage2_inverted` | `false` | Inverts ADC2 mapping. |
+| `multi_esc` | `true` | Forwards command over CAN bus. |
+
+## Throttle curve
+
+The `throttle_exp` and `throttle_exp_brake` fields tune the exponential response curve, controlled by `throttle_exp_mode`:
+
+```c
+typedef enum {
+    THR_EXP_EXPO = 0,
+    THR_EXP_NATURAL,
+    THR_EXP_POLY
+} thr_exp_mode;
+```
+
+A value of `0.0` gives a linear response. Positive values make the initial part of the throttle softer.
+
+## Runtime API
+
+```c
+void app_adc_start(bool use_rx_tx);
+void app_adc_stop(void);
+void app_adc_configure(adc_config *conf);
+float app_adc_get_decoded_level(void);
+float app_adc_get_voltage(void);
+float app_adc_get_decoded_level2(void);
+float app_adc_get_voltage2(void);
+bool app_adc_range_ok(void);
+void app_adc_detach_adc(int detach);
+void app_adc_adc1_override(float val);
+void app_adc_adc2_override(float val);
+```
+
+`app_adc_range_ok` returns `false` when either ADC channel voltage is outside the configured min/max bounds, which can be polled to detect a disconnected sensor.

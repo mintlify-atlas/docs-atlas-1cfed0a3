@@ -1,0 +1,73 @@
+---
+title: 'IDE setup'
+description: 'Install Qt Creator and open the VESC firmware project for development.'
+---
+
+The VESC firmware repository includes a Qt Creator project for development. The Makefile provides an installer target that downloads and configures Qt Creator automatically.
+
+## Prerequisites
+
+Before running the Qt installer, make sure you have Python 3 and pip available. See [Prerequisites](/building/prerequisites) for installation instructions.
+
+Then install `aqtinstall`, the tool used by `make qt_install` to download Qt:
+
+```bash
+pip install aqtinstall
+```
+
+## Install Qt Creator
+
+Run the Qt installer target from the repository root:
+
+```bash
+make qt_install
+```
+
+This downloads and installs Qt Creator into the `tools/Qt/` directory inside the repository. No system-wide Qt installation is required.
+
+<Note>
+  All tools installed by Makefile targets are placed under the `tools/` directory. The build output goes to `build/`. Nothing is installed system-wide.
+</Note>
+
+## Open the project
+
+<Steps>
+  <Step title="Launch Qt Creator">
+    Open the Qt Creator binary installed by the previous step:
+
+    ```bash
+    tools/Qt/Tools/QtCreator/bin/qtcreator
+    ```
+
+    On Windows, navigate to `tools\Qt\Tools\QtCreator\bin\qtcreator.exe` in Explorer and double-click it.
+  </Step>
+  <Step title="Open the vesc.pro project">
+    Inside Qt Creator, open the VESC firmware Qt Creator project:
+
+    ```
+    Project/Qt Creator/vesc.pro
+    ```
+
+    Use **File → Open File or Project** and browse to `vesc.pro` inside the `Project/Qt Creator/` directory.
+  </Step>
+  <Step title="Select your hardware target">
+    The project defaults to building the `100_250` firmware. To change the target hardware:
+
+    - Look at the bottom of the **left panel** in Qt Creator.
+    - You will find a list of all hardware variants supported by VESC.
+    - Select the entry that matches your board.
+  </Step>
+  <Step title="Build the project">
+    Use the Qt Creator build button or press **Ctrl+B** to compile the firmware for your selected target.
+  </Step>
+</Steps>
+
+## Changing the hardware target
+
+The hardware target controls which board-specific header and source files are compiled. All supported hardware variants are listed at the bottom of the left panel in Qt Creator.
+
+If your board is not listed, you can define a custom hardware configuration. See [`conf_general.h`](https://github.com/vedderb/bldc/blob/master/conf_general.h) and the `fw_custom` make target described in [Build firmware](/building/build-firmware).
+
+<Tip>
+  You can also build from the command line without Qt Creator at any time using `make <target>`. Qt Creator is optional and mainly useful for navigating and editing the source code.
+</Tip>

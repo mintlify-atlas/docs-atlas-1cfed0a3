@@ -1,0 +1,220 @@
+---
+title: Motor configuration reference
+description: Default values and descriptions for all motor configuration limits in VESC firmware — current, voltage, temperature, speed, and more.
+keywords: [motor configuration, current limits, voltage limits, temperature limits, speed limits, mcconf, VESC configuration]
+---
+
+All default motor configuration values are defined in `motor/mcconf_default.h`. Every value can be overridden per hardware target via `#define` in the hardware header before including `mcconf_default.h`.
+
+## Current limits
+
+Current limits protect the motor and controller from damage. The firmware enforces these limits continuously.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_CURRENT_MAX` | **60.0 A** | Maximum motor current (motoring) |
+| `MCCONF_L_CURRENT_MIN` | **-60.0 A** | Maximum motor current (braking / regeneration) |
+| `MCCONF_L_IN_CURRENT_MAX` | **99.0 A** | Maximum battery/input current (discharge) |
+| `MCCONF_L_IN_CURRENT_MIN` | **-60.0 A** | Maximum battery/input current (charge / regen) |
+| `MCCONF_L_MAX_ABS_CURRENT` | **130.0 A** | Absolute instantaneous current above which `FAULT_CODE_ABS_OVER_CURRENT` is triggered |
+| `MCCONF_L_CURRENT_MAX_SCALE` | **1.0** | Scale factor applied to `MCCONF_L_CURRENT_MAX` |
+| `MCCONF_L_CURRENT_MIN_SCALE` | **1.0** | Scale factor applied to `MCCONF_L_CURRENT_MIN` |
+
+### Input current mapping
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_IN_CURRENT_MAP_START` | **1.0 A** | Input current at which the q-axis current limit mapping begins |
+| `MCCONF_L_IN_CURRENT_MAP_FILTER` | **0.005** | Low-pass filter constant for the mapped input current limit |
+
+<Note>
+The absolute current limit (`MCCONF_L_MAX_ABS_CURRENT`) applies to the unfiltered peak current. If `MCCONF_L_SLOW_ABS_OVERCURRENT` is `true` (default: `false`), the filtered current is used instead, which is slower to react.
+</Note>
+
+## Voltage limits
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_MIN_VOLTAGE` | **8.0 V** | Minimum input voltage; triggers `FAULT_CODE_UNDER_VOLTAGE` below this |
+| `MCCONF_L_MAX_VOLTAGE` | **57.0 V** | Maximum input voltage; triggers `FAULT_CODE_OVER_VOLTAGE` above this |
+
+### Battery cutoff
+
+As battery voltage drops, the firmware gradually reduces positive current to protect the battery:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_BATTERY_CUT_START` | **10.0 V** | Start reducing positive current output at this voltage |
+| `MCCONF_L_BATTERY_CUT_END` | **8.0 V** | Positive current is fully blocked at or below this voltage |
+| `MCCONF_L_BATTERY_REGEN_CUT_START` | **1000.0 V** | Start reducing regenerative current at this voltage (effectively disabled by default) |
+| `MCCONF_L_BATTERY_REGEN_CUT_END` | **1100.0 V** | Regenerative current is fully blocked above this voltage (effectively disabled by default) |
+
+<Note>
+The regenerative cut defaults are intentionally set far above any realistic battery voltage, meaning regenerative braking is not voltage-limited by default. Set these to meaningful values (e.g., 4.1 V × cells) to protect lithium cells from overcharge during braking.
+</Note>
+
+## Temperature limits
+
+The firmware monitors both MOSFET (FET) and motor temperatures. When temperature exceeds the start threshold, current is linearly reduced. At the end threshold, the output is shut off entirely.
+
+### MOSFET temperature
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_LIM_TEMP_FET_START` | **85.0 °C** | Begin current limiting at this FET temperature |
+| `MCCONF_L_LIM_TEMP_FET_END` | **100.0 °C** | Shut off all output at this FET temperature; triggers `FAULT_CODE_OVER_TEMP_FET` |
+
+### Motor temperature
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_LIM_TEMP_MOTOR_START` | **85.0 °C** | Begin current limiting at this motor temperature |
+| `MCCONF_L_LIM_TEMP_MOTOR_END` | **100.0 °C** | Shut off all output at this motor temperature; triggers `FAULT_CODE_OVER_TEMP_MOTOR` |
+
+### Acceleration thermal derating
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_LIM_TEMP_ACCEL_DEC` | **0.15** | Decrease temperature thresholds by this fraction during acceleration to provide extra headroom |
+
+### Motor temperature sensor
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_M_MOTOR_TEMP_SENS_TYPE` | `TEMP_SENSOR_NTC_10K_25C` | Motor temperature sensor type |
+| `MCCONF_M_NTC_MOTOR_BETA` | **3380.0** | Beta coefficient for NTC thermistor |
+| `MCCONF_M_PTC_MOTOR_COEFF` | **0.61 %/K** | Temperature coefficient for PTC sensors |
+| `MCCONF_M_NTCX_PTCX_RES` | **10000 Ω** | Reference resistance for custom NTC/PTC sensors |
+| `MCCONF_M_NTCX_PTCX_BASE_TEMP` | **25.0 °C** | Reference temperature for custom NTC/PTC sensors |
+
+Supported sensor types (`temp_sensor_type`):
+
+```c
+typedef enum {
+    TEMP_SENSOR_NTC_10K_25C = 0,
+    TEMP_SENSOR_PTC_1K_100C,
+    TEMP_SENSOR_KTY83_122,
+    TEMP_SENSOR_NTC_100K_25C,
+    TEMP_SENSOR_KTY84_130,
+    TEMP_SENSOR_NTCX,
+    TEMP_SENSOR_PTCX,
+    TEMP_SENSOR_PT1000,
+    TEMP_SENSOR_DISABLED
+} temp_sensor_type;
+```
+
+## Speed limits
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_RPM_MAX` | **100000 ERPM** | Maximum electrical RPM (upper) |
+| `MCCONF_L_RPM_MIN` | **-100000 ERPM** | Maximum electrical RPM (lower) |
+| `MCCONF_L_RPM_START` | **0.8** | Fraction of maximum RPM at which RPM-based current limiting begins |
+
+## Duty cycle limits
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_MIN_DUTY` | **0.005** | Minimum duty cycle (avoids discontinuous conduction) |
+| `MCCONF_L_MAX_DUTY` | **0.95** | Maximum duty cycle |
+| `MCCONF_L_DUTY_START` | **1.0** | Duty cycle fraction at which current limiting is applied (1.0 = disabled) |
+
+## Brake limits
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_CURR_MAX_RPM_FBRAKE` | **300 ERPM** | Maximum ERPM at which full brake (all-low-side) is applied |
+| `MCCONF_L_CURR_MAX_RPM_FBRAKE_CC` | **1500 ERPM** | Maximum ERPM at which full brake is applied in current control mode |
+
+## Power limits
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_L_WATT_MAX` | **1500000 W** | Maximum output power |
+| `MCCONF_L_WATT_MIN` | **-1500000 W** | Maximum braking power (negative = regen) |
+
+<Note>
+The default power limits are set to very high values (1.5 MW) and are effectively unlimited for all practical VESC hardware. Set these to realistic values to prevent battery over-discharge or motor overheating.
+</Note>
+
+## Speed PID parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_S_PID_KP` | **0.004** | Proportional gain |
+| `MCCONF_S_PID_KI` | **0.004** | Integral gain |
+| `MCCONF_S_PID_KD` | **0.0001** | Derivative gain |
+| `MCCONF_S_PID_KD_FILTER` | **0.2** | Derivative term low-pass filter coefficient |
+| `MCCONF_S_PID_MIN_RPM` | **900.0 ERPM** | Minimum RPM setpoint in speed control mode |
+| `MCCONF_S_PID_ALLOW_BRAKING` | **true** | Allow the speed PID to apply braking current |
+| `MCCONF_S_PID_RAMP_ERPMS_S` | **25000 ERPM/s** | Input speed ramp rate |
+| `MCCONF_SP_PID_LOOP_RATE` | `PID_RATE_1000_HZ` | PID loop execution rate |
+
+## Position PID parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_P_PID_KP` | **0.025** | Proportional gain |
+| `MCCONF_P_PID_KI` | **0.0** | Integral gain |
+| `MCCONF_P_PID_KD` | **0.00000** | Derivative gain |
+| `MCCONF_P_PID_KD_PROC` | **0.00035** | Derivative gain applied to the process variable |
+| `MCCONF_P_PID_KD_FILTER` | **0.2** | Derivative term low-pass filter coefficient |
+| `MCCONF_P_PID_ANG_DIV` | **1.0** | Divide the angle by this factor before the PID input |
+| `MCCONF_P_PID_GAIN_DEC_ANGLE` | **0.0** | Reduce PID gains when the error is below this angle (degrees) |
+| `MCCONF_P_PID_OFFSET` | **0.0** | Angle offset applied to the position setpoint |
+
+## Ramping
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_M_RAMP_STEP` | **0.02** | Maximum duty cycle ramp step per millisecond at full duty cycle |
+| `MCCONF_M_CURRENT_BACKOFF_GAIN` | **0.5** | Error gain for the current limiting backoff algorithm |
+
+## Fault behavior
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_M_FAULT_STOP_TIME` | **500 ms** | Duration during which commands are ignored after a fault |
+| `MCCONF_L_SLOW_ABS_OVERCURRENT` | **false** | Use the filtered current for absolute overcurrent detection |
+
+## Encoder configuration
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_M_ENCODER_COUNTS` | **8192** | Encoder counts per revolution |
+| `MCCONF_M_ENCODER_SIN_AMP` | **1.0** | Sin/cos encoder sine channel amplitude |
+| `MCCONF_M_ENCODER_SIN_OFFSET` | **1.65 V** | Sin/cos encoder sine channel offset |
+| `MCCONF_M_ENCODER_COS_AMP` | **1.0** | Sin/cos encoder cosine channel amplitude |
+| `MCCONF_M_ENCODER_COS_OFFSET` | **1.65 V** | Sin/cos encoder cosine channel offset |
+| `MCCONF_M_ENCODER_SINCOS_FILTER` | **0.5** | Signal filter constant for sin/cos encoder |
+| `MCCONF_M_ENCODER_SINCOS_PHASE` | **0.0°** | Phase correction for sin/cos encoder |
+| `MCCONF_M_SENSOR_PORT_MODE` | `SENSOR_PORT_MODE_HALL` | Mode of the hall/encoder port |
+
+## Setup info
+
+Setup parameters are used to convert electrical measurements (ERPM, amp-hours) to mechanical units (m/s, km):
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_SI_MOTOR_POLES` | **14** | Number of motor poles (electrical cycles per mechanical revolution × 2) |
+| `MCCONF_SI_GEAR_RATIO` | **3** | Drive gear ratio (motor revs per wheel rev) |
+| `MCCONF_SI_WHEEL_DIAMETER` | **0.083 m** | Wheel or drum diameter |
+| `MCCONF_SI_BATTERY_TYPE` | `BATTERY_TYPE_LIION_3_0__4_2` | Battery chemistry |
+| `MCCONF_SI_BATTERY_CELLS` | **3** | Number of cells in series |
+| `MCCONF_SI_BATTERY_AH` | **6.0 Ah** | Battery capacity |
+| `MCCONF_SI_MOTOR_NL_CURRENT` | **1.0 A** | Motor no-load current (used in efficiency calculations) |
+
+## Miscellaneous
+
+| Parameter | Default | Description |
+|---|---|---|
+| `MCCONF_M_INVERT_DIRECTION` | **false** | Invert the motor direction |
+| `MCCONF_M_DRV8301_OC_MODE` | `DRV8301_OC_LIMIT` | DRV8301 over-current protection mode |
+| `MCCONF_M_DRV8301_OC_ADJ` | **16** | DRV8301 over-current threshold adjustment |
+| `MCCONF_M_HALL_EXTRA_SAMPLES` | **3** | Extra ADC samples for hall sensor filtering |
+| `MCCONF_M_BATT_FILTER_CONST` | **45** | Battery voltage level filter time constant |
+| `MCCONF_M_OUT_AUX_MODE` | `OUT_AUX_MODE_OFF` | Auxiliary output mode |
+
+<Warning>
+Changing current limits, voltage limits, or temperature limits outside the rated range of your hardware can cause permanent damage to the MOSFET bridge, motor, or battery. Always verify your hardware's ratings before adjusting defaults.
+</Warning>
