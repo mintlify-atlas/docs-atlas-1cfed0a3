@@ -21,7 +21,7 @@ typedef enum {
 } IMU_TYPE;
 ```
 
-<Columns cols={2}>
+<CardGroup cols={2}>
   <Card title="BMI160" icon="microchip">
     Bosch 6-axis IMU (accelerometer + gyroscope). Supported over both **I²C** and **SPI**. Widely used on VESC Express and custom hardware.
   </Card>
@@ -37,7 +37,7 @@ typedef enum {
   <Card title="MPU9150 / MPU9250" icon="microchip">
     TDK InvenSense 9-axis IMU family. Supported over **I²C** via the `imu_init_mpu9x50` path.
   </Card>
-</Columns>
+</CardGroup>
 
 The `IMU_TYPE_INTERNAL` option uses an IMU soldered directly onto the VESC controller PCB, wired to fixed I²C or SPI pins defined in the hardware configuration.
 

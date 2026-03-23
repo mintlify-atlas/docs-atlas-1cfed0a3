@@ -63,7 +63,7 @@ The firmware default is `APP_UART` so the UART port remains available for firmwa
 
 ## Application pages
 
-<Columns cols={2}>
+<CardGroup cols={2}>
   <Card title="PPM" icon="signal" href="/applications/ppm">
     RC receiver pulse-width input for ESC-style throttle control.
   </Card>
@@ -73,16 +73,16 @@ The firmware default is `APP_UART` so the UART port remains available for firmwa
   <Card title="UART" icon="terminal" href="/applications/uart">
     Serial communication with external controllers using the VESC protocol.
   </Card>
-  <Card title="Nunchuk" icon="gamepad-2" href="/applications/nunchuk">
+  <Card title="Nunchuk" icon="gamepad" href="/applications/nunchuk">
     Wii Nunchuk joystick and button control over I2C.
   </Card>
-  <Card title="PAS" icon="bike" href="/applications/pas">
+  <Card title="PAS" icon="person-biking" href="/applications/pas">
     Pedal assist for e-bikes based on cadence or torque sensing.
   </Card>
   <Card title="Custom" icon="code" href="/applications/custom">
     Write your own application logic directly in firmware C code.
   </Card>
-</Columns>
+</CardGroup>
 
 ## Runtime API
 
