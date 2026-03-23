@@ -1,0 +1,124 @@
+{
+  "projectType": "general",
+  "projectName": "VESC Firmware",
+  "projectDescription": "Open source motor controller firmware for BLDC/FOC/DC motors running on STM32-based VESC hardware.",
+  "theme": "aspen",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "supported-hardware"
+            ]
+          },
+          {
+            "group": "Building & Flashing",
+            "pages": [
+              "building/prerequisites",
+              "building/build-firmware",
+              "building/flashing",
+              "building/ide-setup"
+            ]
+          },
+          {
+            "group": "Motor Control",
+            "pages": [
+              "motor-control/overview",
+              "motor-control/foc",
+              "motor-control/bldc",
+              "motor-control/configuration"
+            ]
+          },
+          {
+            "group": "Applications",
+            "pages": [
+              "applications/overview",
+              "applications/ppm",
+              "applications/adc",
+              "applications/uart",
+              "applications/nunchuk",
+              "applications/pas",
+              "applications/custom"
+            ]
+          },
+          {
+            "group": "Communication",
+            "pages": [
+              "communication/can-bus",
+              "communication/usb",
+              "communication/uart-protocol"
+            ]
+          },
+          {
+            "group": "Encoders & Sensors",
+            "pages": [
+              "encoders/overview",
+              "encoders/supported-encoders",
+              "imu/overview"
+            ]
+          },
+          {
+            "group": "LispBM Scripting",
+            "pages": [
+              "lispbm/introduction",
+              "lispbm/language-reference",
+              "lispbm/vesc-extensions",
+              "lispbm/examples"
+            ]
+          },
+          {
+            "group": "Hardware Configuration",
+            "pages": [
+              "hardware/overview",
+              "hardware/custom-hardware",
+              "hardware/bms"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/faults",
+              "reference/configuration-parameters",
+              "reference/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "FOC (Field Oriented Control) motor control with sensorless, Hall sensor, and encoder modes",
+    "BLDC (Brushless DC) trapezoidal commutation support",
+    "LispBM scripting environment for custom applications running on the VESC",
+    "CAN-bus multi-device communication and control",
+    "Wide hardware support: Trampa, FlipSky, MakerX, Ubox, and many more",
+    "Multiple encoder support: ABI, AS504x, SinCos, BiSSC, PWM, and more",
+    "IMU integration: BMI160, ICM20948, LSM6DS3, MPU9150",
+    "USB, UART, and CAN communication interfaces",
+    "Configurable input applications: PPM, ADC, UART, Nunchuk, PAS",
+    "Over-the-air (OTA) firmware updates via VESC Tool"
+  ],
+  "publicApiSurface": [
+    "mc_interface_set_duty(float dutyCycle)",
+    "mc_interface_set_current(float current)",
+    "mc_interface_set_pid_speed(float rpm)",
+    "mc_interface_set_pid_pos(float pos)",
+    "mc_interface_get_rpm()",
+    "mc_interface_get_fault()",
+    "mc_interface_get_state()",
+    "CAN_PACKET_SET_DUTY",
+    "CAN_PACKET_SET_CURRENT",
+    "CAN_PACKET_SET_RPM",
+    "CAN_PACKET_SET_POS",
+    "commands.c COMM_* protocol commands",
+    "LispBM VESC extensions (lispif_vesc_extensions.c)"
+  ]
+}
